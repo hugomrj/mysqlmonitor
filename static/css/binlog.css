@@ -1,0 +1,17 @@
+/* Binlog específico */
+.bl-feed{max-height:460px;overflow-y:auto}
+.bl-feed tbody tr.bl-insert td:first-child{border-left:3px solid var(--success)}
+.bl-feed tbody tr.bl-update td:first-child{border-left:3px solid var(--warning)}
+.bl-feed tbody tr.bl-delete td:first-child{border-left:3px solid var(--danger)}
+.bl-feed tbody tr{animation:blRow .35s ease}
+@keyframes blRow{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.bl-pulse{width:8px;height:8px;border-radius:50%;display:inline-block}
+.bl-pulse.live{background:var(--success);animation:blPulse 1.2s ease-in-out infinite}
+.bl-pulse.dead{background:var(--danger)}
+.bl-pulse.wait{background:var(--warning);animation:blPulse 2s ease-in-out infinite}
+@keyframes blPulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}50%{box-shadow:0 0 0 6px rgba(34,197,94,0)}}
+.info-box{background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:9px;padding:14px 18px;font-size:12px;color:var(--text-secondary);line-height:1.7}
+.info-box code{background:var(--bg-body);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--info)}
+.top-table-item{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.top-table-item:last-child{border-bottom:none}
+.top-table-bar{height:4px;border-radius:2px;background:var(--accent);transition:width .3s}

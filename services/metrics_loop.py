@@ -9,15 +9,14 @@ from services import websocket, alerts
 
 logger = logging.getLogger("mysql_monitor.loop")
 
-# Tarea de fondo
 _task: asyncio.Task | None = None
-
-# Último snapshot de métricas (para enviar a nuevos clientes WS)
 _last_snapshot: dict = {}
+
+_slow_counter = 0
+SLOW_CACHE_EVERY = 15  # Cada 15 ciclos (~30s a intervalo 2s)
 
 
 async def start():
-    """Inicia el loop de recolección de métricas."""
     global _task
     if _task is not None:
         return
@@ -26,7 +25,6 @@ async def start():
 
 
 async def stop():
-    """Detiene el loop."""
     global _task
     if _task is not None:
         _task.cancel()
@@ -39,35 +37,22 @@ async def stop():
 
 
 def get_last_snapshot() -> dict:
-    """Devuelve el último snapshot para clientes que se conectan."""
     return _last_snapshot
 
 
 async def _loop():
-    """Loop principal. Lee config, conecta, recolecta, evalúa, envía."""
     while True:
         try:
-            # Leer config actual (puede haber cambiado vía API)
             config = await load_config()
-
-            # Asegurar conexión a MySQL
             await create_pool(config.mysql)
             connected = await is_connected()
-
-            # Recolectar en paralelo lo que se puede
             system_data = await system.collect()
             status_data = await status.collect()
-
-            # Processlist (solo si hay conexión)
             proc_data = await processlist.collect() if connected else []
-
-            # Evaluar alertas
-            slow_count = 0  # Se calcula en el endpoint de slow queries
+            slow_count = 0
             active_alerts = alerts.evaluate(
                 system_data, status_data, config.alerts, slow_count
             )
-
-            # Armar snapshot
             snapshot = {
                 "timestamp": datetime.now().isoformat(),
                 "system": system_data,
@@ -78,24 +63,27 @@ async def _loop():
                     "refresh_interval": config.refresh_interval,
                 },
             }
-
-            # Guardar para nuevos clientes
             _last_snapshot.update(snapshot)
-
-            # Enviar a todos los conectados por WebSocket
             await websocket.broadcast(snapshot)
+
+            # ── Cachear consultas lentas (throttled) ──
+            global _slow_counter
+            _slow_counter += 1
+            if _slow_counter >= SLOW_CACHE_EVERY:
+                _slow_counter = 0
+                try:
+                    from services.slow_cache import cache_slow_queries
+                    await cache_slow_queries(min_time=0.5)
+                except Exception as e:
+                    logger.error(f"Error cacheando slow queries: {e}")
 
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.error(f"Error en ciclo de métricas: {e}", exc_info=True)
-
-        # Esperar el intervalo configurado
-        # Leer de nuevo por si cambió en caliente
         try:
             cfg = await load_config()
             interval = cfg.refresh_interval
         except Exception:
             interval = 2.0
-
         await asyncio.sleep(interval)

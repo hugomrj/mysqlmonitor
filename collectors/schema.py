@@ -2,8 +2,6 @@ import logging
 
 logger = logging.getLogger("mysql_monitor.collectors.schema")
 
-SKIP_SCHEMAS = ("mysql", "information_schema", "performance_schema", "sys")
-
 
 async def _get_pool():
     try:
@@ -35,7 +33,7 @@ async def collect_databases() -> list:
                 await cur.execute("""
                     SELECT
                         s.SCHEMA_NAME,
-                        s.DEFAULT_CHARACTER_SET_NAME,
+                        ANY_VALUE(s.DEFAULT_CHARACTER_SET_NAME),
                         COALESCE(SUM(t.DATA_LENGTH + t.INDEX_LENGTH), 0),
                         COUNT(t.TABLE_NAME),
                         MAX(t.UPDATE_TIME)
@@ -43,10 +41,11 @@ async def collect_databases() -> list:
                     LEFT JOIN information_schema.TABLES t
                         ON s.SCHEMA_NAME = t.TABLE_SCHEMA
                         AND t.TABLE_TYPE = 'BASE TABLE'
-                    WHERE s.SCHEMA_NAME NOT IN %s
+                    WHERE s.SCHEMA_NAME NOT IN
+                        ('mysql','information_schema','performance_schema','sys')
                     GROUP BY s.SCHEMA_NAME
                     ORDER BY 3 DESC
-                """, (SKIP_SCHEMAS,))
+                """)
 
                 rows = await cur.fetchall()
                 result = []
@@ -77,11 +76,18 @@ async def collect_tables(schema: str) -> list:
             async with conn.cursor() as cur:
                 await cur.execute("""
                     SELECT
-                        TABLE_NAME, ENGINE, DATA_LENGTH, INDEX_LENGTH,
-                        (DATA_LENGTH + INDEX_LENGTH), TABLE_ROWS,
-                        AUTO_INCREMENT, CREATE_TIME, UPDATE_TIME
+                        TABLE_NAME,
+                        ENGINE,
+                        DATA_LENGTH,
+                        INDEX_LENGTH,
+                        (DATA_LENGTH + INDEX_LENGTH),
+                        TABLE_ROWS,
+                        AUTO_INCREMENT,
+                        CREATE_TIME,
+                        UPDATE_TIME
                     FROM information_schema.TABLES
-                    WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'
+                    WHERE TABLE_SCHEMA = %s
+                        AND TABLE_TYPE = 'BASE TABLE'
                     ORDER BY (DATA_LENGTH + INDEX_LENGTH) DESC
                 """, (schema,))
 
@@ -122,14 +128,16 @@ async def collect_top_tables(limit: int = 8) -> list:
             async with conn.cursor() as cur:
                 await cur.execute("""
                     SELECT
-                        TABLE_SCHEMA, TABLE_NAME,
+                        TABLE_SCHEMA,
+                        TABLE_NAME,
                         (DATA_LENGTH + INDEX_LENGTH)
                     FROM information_schema.TABLES
-                    WHERE TABLE_SCHEMA NOT IN %s
+                    WHERE TABLE_SCHEMA NOT IN
+                        ('mysql','information_schema','performance_schema','sys')
                         AND TABLE_TYPE = 'BASE TABLE'
                     ORDER BY 3 DESC
                     LIMIT %s
-                """, (SKIP_SCHEMAS, limit))
+                """, (limit,))
 
                 rows = await cur.fetchall()
                 return [

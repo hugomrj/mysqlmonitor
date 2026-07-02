@@ -1,0 +1,476 @@
+"""
+Binlog Stream Service
+=====================
+Lee el binlog de MySQL 5.7 como esclavo silencioso usando python-mysql-replication.
+Corre en un thread separado (la lib es síncrona/blocking) y puentea eventos
+al event loop async vía Queue. Los eventos se:
+  - Guardan en SQLite (auditoría)
+  - Broadcastean por WebSocket /ws/binlog
+  - Mantienen en memoria un buffer circular para clientes nuevos
+"""
+import asyncio
+import json
+import logging
+import queue
+import sqlite3
+import threading
+import time
+import random
+from collections import deque
+from datetime import datetime, timezone
+from typing import Optional, Set
+
+import aiosqlite
+
+
+import logging
+logging.getLogger("pymysqlreplication").setLevel(logging.ERROR)
+
+
+logger = logging.getLogger("binlog_stream")
+
+DB_PATH = "monitor.db"
+MAX_STORED_EVENTS = 10000
+MAX_ROW_DATA_ROWS = 5
+MAX_STRING_LENGTH = 200
+
+
+def _get_replication_module():
+    """Import tardío — no falla si no está instalado."""
+    try:
+        from pymysqlreplication import BinLogStreamReader
+        from pymysqlreplication.row_event import (
+            DeleteRowsEvent,
+            UpdateRowsEvent,
+            WriteRowsEvent,
+            TableMapEvent,  # ← NUEVO: Necesario para obtener los nombres reales de las columnas
+        )
+        return BinLogStreamReader, WriteRowsEvent, UpdateRowsEvent, DeleteRowsEvent, TableMapEvent
+    except ImportError:
+        logger.error(
+            "pymysql-replication no instalado. Ejecuta: pip install pymysql-replication"
+        )
+        return None, None, None, None, None
+
+
+class BinlogStreamService:
+    def __init__(self):
+        self._queue: queue.Queue = queue.Queue(maxsize=50000)
+        self._thread: Optional[threading.Thread] = None
+        self._running: bool = False
+        self._recent_events: deque = deque(maxlen=500)
+        self._clients: Set = set()
+        self._lock = threading.Lock()
+        self._eps_counter: int = 0
+        self._eps_last_time: float = time.time()
+        self._stats: dict = {
+            "total_events": 0,
+            "insert_count": 0,
+            "update_count": 0,
+            "delete_count": 0,
+            "other_count": 0,
+            "events_per_second": 0.0,
+            "started_at": None,
+            "last_event_at": None,
+            "current_log_file": None,
+            "current_log_pos": 0,
+            "streamer_running": False,
+            "error": None,
+            "tables_hot": {},
+        }
+
+    # ── Propiedades públicas ──────────────────────────────────────
+
+    @property
+    def stats(self) -> dict:
+        with self._lock:
+            s = {**self._stats}
+            s["tables_hot"] = dict(s["tables_hot"])
+            return s
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def add_client(self, ws_send):
+        self._clients.add(ws_send)
+
+    def remove_client(self, ws_send):
+        self._clients.discard(ws_send)
+
+    def get_recent_events(self, limit: int = 50) -> list:
+        return list(self._recent_events)[-limit:]
+
+    # ── Verificar si binlog está disponible ───────────────────────
+
+    async def check_binlog_available(self, mysql_config: dict) -> bool:
+        """Verifica si el servidor MySQL tiene binlog habilitado."""
+        try:
+            import aiomysql
+            conn = await aiomysql.connect(
+                host=mysql_config.get("host", "localhost"),
+                port=int(mysql_config.get("port", 3306)),
+                user=mysql_config.get("user", "root"),
+                password=mysql_config.get("password", ""),      
+                connect_timeout=5,
+            )
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute("SHOW VARIABLES LIKE 'log_bin'")
+                    row = await cur.fetchone()
+                    if not row or row[1] != "ON":
+                        logger.warning("Binlog NO habilitado en el servidor MySQL")
+                        with self._lock:
+                            self._stats["error"] = "Binlog no habilitado en el servidor"
+                            self._stats["streamer_running"] = False
+                        return False
+
+                    await cur.execute("SHOW VARIABLES LIKE 'binlog_format'")
+                    row = await cur.fetchone()
+                    if not row or row[1] != "ROW":
+                        logger.warning("Binlog format no es ROW")
+                        with self._lock:
+                            self._stats["error"] = "Binlog format debe ser ROW"
+                        return False
+
+                logger.info("Binlog disponible y habilitado ✓")
+                return True
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error(f"Error verificando binlog: {e}")
+            with self._lock:
+                self._stats["error"] = str(e)
+            return False
+
+    # ── Control de ciclo de vida ──────────────────────────────────
+
+    async def start(self, mysql_config: dict):
+        if self._running:
+            logger.warning("Binlog streamer ya está corriendo")
+            return
+
+        available = await self.check_binlog_available(mysql_config)
+        if not available:
+            logger.info("Binlog no disponible, funcionalidad deshabilitada")
+            return
+
+        self._running = True
+        with self._lock:
+            self._stats["started_at"] = datetime.now(timezone.utc).isoformat()
+        self._thread = threading.Thread(
+            target=self._run_streamer,
+            args=(mysql_config,),
+            daemon=True,
+            name="binlog-streamer",
+        )
+        self._thread.start()
+        logger.info("Binlog streamer iniciado")
+        asyncio.create_task(self._consume_loop())
+        asyncio.create_task(self._eps_calculator())
+
+    async def stop(self):
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+        with self._lock:
+            self._stats["streamer_running"] = False
+        logger.info("Binlog streamer detenido")
+
+    async def restart(self, mysql_config: dict):
+        await self.stop()
+        await asyncio.sleep(0.5)
+        await self.start(mysql_config)
+
+    # ── Thread: lector síncrono del binlog ────────────────────────
+
+    def _run_streamer(self, mysql_config: dict):
+        # ← MODIFICADO: Agregado TableMapEvt
+        BinLogStreamReader, WriteEvt, UpdateEvt, DeleteEvt, TableMapEvt = _get_replication_module()
+        if BinLogStreamReader is None:
+            with self._lock:
+                self._stats["error"] = "pymysql-replication no instalado"
+            return
+
+        saved_pos = self._load_position()
+
+        while self._running:
+            try:
+                with self._lock:
+                    self._stats["streamer_running"] = True
+                    self._stats["error"] = None
+
+                # ID aleatorio para evitar conflictos al reiniciar
+                stream = BinLogStreamReader(
+                    connection_settings={
+                        "host": mysql_config.get("host", "localhost"),
+                        "port": int(mysql_config.get("port", 3306)),
+                        "user": mysql_config.get("user", "root"),
+                        "passwd": mysql_config.get("password", ""),
+                        "connect_timeout": 10,
+                        "read_timeout": 30,
+                    },
+                    server_id=random.randint(100000, 999999),
+                    blocking=True,
+                    # ← MODIFICADO: Agregado TableMapEvt para resolver nombres de columnas
+                    only_events=[TableMapEvt, WriteEvt, UpdateEvt, DeleteEvt],
+                    resume_stream=True,
+                    log_file=saved_pos.get("log_file") if saved_pos else None,
+                    log_pos=saved_pos.get("log_pos") if saved_pos else None,
+                )
+                
+                logger.info(
+                    f"Binlog conectado, posición: {saved_pos or 'inicio'}"
+                )
+
+                try:
+                    for binlog_event in stream:
+                        if not self._running:
+                            break
+                        event_data = self._extract_event(
+                            binlog_event, WriteEvt, UpdateEvt, DeleteEvt
+                        )
+                        if event_data:
+                            try:
+                                self._queue.put_nowait(event_data)
+                            except queue.Full:
+                                logger.warning("Queue llena, descartando evento")                        
+                            with self._lock:
+                                self._stats["current_log_file"] = getattr(binlog_event, 'log_file', None) or getattr(binlog_event.packet, 'log_file', 'unknown')
+                                self._stats["current_log_pos"] = getattr(binlog_event, 'log_pos', None) or getattr(binlog_event.packet, 'log_pos', 0)
+
+                finally:
+                    stream.close()
+
+            except Exception as e:
+                err = str(e)
+                logger.error(f"Error en binlog streamer: {err}")
+                with self._lock:
+                    self._stats["streamer_running"] = False
+                    self._stats["error"] = err
+                for _ in range(30):
+                    if not self._running:
+                        return
+                    time.sleep(1)
+
+    # ── Extracción segura de datos del evento ─────────────────────
+
+    def _extract_event(self, event, WriteEvt, UpdateEvt, DeleteEvt) -> Optional[dict]:
+        try:
+            if isinstance(event, WriteEvt):
+                etype = "INSERT"
+            elif isinstance(event, UpdateEvt):
+                etype = "UPDATE"
+            elif isinstance(event, DeleteEvt):
+                etype = "DELETE"
+            else:
+                return None
+
+            rows_data = []
+            for row in event.rows[:MAX_ROW_DATA_ROWS]:
+                if etype == "INSERT":
+                    rows_data.append(self._clean(row.get("values", {})))
+                elif etype == "DELETE":
+                    rows_data.append(self._clean(row.get("values", {})))
+                elif etype == "UPDATE":
+                    rows_data.append(
+                        {
+                            "before": self._clean(row.get("before_values", {})),
+                            "after": self._clean(row.get("after_values", {})),
+                        }
+                    )
+                    
+            # Obtener log_file y log_pos de forma segura (varía según la versión de la lib)
+            log_file = getattr(event, 'log_file', None) or getattr(event.packet, 'log_file', 'unknown')
+            log_pos = getattr(event, 'log_pos', None) or getattr(event.packet, 'log_pos', 0)
+
+            return {
+                "event_time": datetime.now(timezone.utc).isoformat(),
+                "event_type": etype,
+                "schema": event.schema,
+                "table": event.table,
+                "affected_rows": len(event.rows),
+                "row_data": json.dumps(rows_data, default=str, ensure_ascii=False),
+                "log_file": log_file,
+                "log_pos": log_pos,
+            }
+        except Exception as e:
+            logger.error(f"Error extrayendo evento: {e}")
+            return None
+
+    @staticmethod
+    def _clean(d: dict) -> dict:
+        out = {}
+        for k, v in d.items():
+            if isinstance(v, (bytes, bytearray)):
+                try:
+                    v = v.decode("utf-8", errors="replace")
+                except Exception:
+                    v = "<binary>"
+            if isinstance(v, str) and len(v) > MAX_STRING_LENGTH:
+                v = v[:MAX_STRING_LENGTH] + "…"
+            out[k] = v
+        return out
+
+    # ── Persistencia de posición (sync, desde el thread) ──────────
+
+    def _load_position(self) -> Optional[dict]:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT log_file, log_pos FROM binlog_position WHERE id=1"
+            ).fetchone()
+            conn.close()
+            # Solo devolver si es un nombre de archivo válido
+            if row and row["log_file"] not in (None, "unknown", ""):
+                return {"log_file": row["log_file"], "log_pos": row["log_pos"]}
+        except Exception:
+            pass
+        return None
+
+    def _save_position(self, log_file: str, log_pos: int):
+        # No guardar si no tenemos un nombre de archivo real
+        if not log_file or log_file == "unknown":
+            return
+            
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                """INSERT INTO binlog_position (id,log_file,log_pos,updated_at)
+                   VALUES(1,?,?,datetime('now'))
+                   ON CONFLICT(id) DO UPDATE SET
+                     log_file=excluded.log_file,
+                     log_pos=excluded.log_pos,
+                     updated_at=excluded.updated_at""",
+                (log_file, log_pos),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error guardando posición: {e}")
+
+    # ── Loop async: consume de la queue ───────────────────────────
+
+    async def _consume_loop(self):
+        loop = asyncio.get_event_loop()
+        while self._running:
+            try:
+                evt = await loop.run_in_executor(
+                    None, self._queue.get, True, 1.0
+                )
+            except queue.Empty:
+                continue
+
+            # Stats
+            with self._lock:
+                self._stats["total_events"] += 1
+                self._stats["last_event_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+                self._eps_counter += 1
+                t = evt["event_type"]
+                if t == "INSERT":
+                    self._stats["insert_count"] += 1
+                elif t == "UPDATE":
+                    self._stats["update_count"] += 1
+                elif t == "DELETE":
+                    self._stats["delete_count"] += 1
+                else:
+                    self._stats["other_count"] += 1
+                key = f"{evt['schema']}.{evt['table']}"
+                self._stats["tables_hot"][key] = (
+                    self._stats["tables_hot"].get(key, 0) + 1
+                )
+
+            # SQLite (fire-and-forget en executor para no bloquear)
+            await self._store_event(evt)
+
+            # Posición (sync en executor)
+            loop.run_in_executor(
+                None, self._save_position, evt["log_file"], evt["log_pos"]
+            )
+
+            # Buffer en memoria
+            self._recent_events.append(evt)
+
+            # Broadcast WS (sin row_data pesado, solo un preview)
+            row_preview = None
+            try:
+                rows = json.loads(evt.get("row_data", "[]"))
+                if rows:
+                    row_preview = rows[0]  # Solo la primera fila para el preview
+            except Exception:
+                pass
+
+            ws_payload = {
+                "type": "binlog_event",
+                "data": {
+                    "event_time": evt["event_time"],
+                    "event_type": evt["event_type"],
+                    "schema": evt["schema"],
+                    "table": evt["table"],
+                    "affected_rows": evt["affected_rows"],
+                    "log_file": evt["log_file"],
+                    "log_pos": evt["log_pos"],
+                    "row_preview": row_preview,
+                },
+            }
+            await self._broadcast(ws_payload)
+
+    async def _store_event(self, evt: dict):
+        try:
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute(
+                    """INSERT INTO binlog_events
+                       (event_time,event_type,schema_name,table_name,
+                        affected_rows,row_data,log_file,log_pos)
+                       VALUES(?,?,?,?,?,?,?,?)""",
+                    (
+                        evt["event_time"],
+                        evt["event_type"],
+                        evt["schema"],
+                        evt["table"],
+                        evt["affected_rows"],
+                        evt["row_data"],
+                        evt["log_file"],
+                        evt["log_pos"],
+                    ),
+                )
+                await db.execute(
+                    "DELETE FROM binlog_events WHERE id NOT IN "
+                    "(SELECT id FROM binlog_events ORDER BY id DESC LIMIT ?)",
+                    (MAX_STORED_EVENTS,),
+                )
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Error guardando evento: {e}")
+
+    async def _broadcast(self, payload: dict):
+        if not self._clients:
+            return
+        dead = set()
+        msg = json.dumps(payload, ensure_ascii=False)
+        for ws in self._clients:
+            try:
+                await ws({"type": "websocket.send", "text": msg})
+            except Exception:
+                dead.add(ws)
+        self._clients -= dead
+
+    async def _eps_calculator(self):
+        while self._running:
+            await asyncio.sleep(1)
+            now = time.time()
+            elapsed = now - self._eps_last_time
+            if elapsed > 0:
+                with self._lock:
+                    self._stats["events_per_second"] = round(
+                        self._eps_counter / elapsed, 1
+                    )
+                    self._eps_counter = 0
+                    self._eps_last_time = now
+
+
+# ── Singleton ────────────────────────────────────────────────────
+binlog_service = BinlogStreamService()

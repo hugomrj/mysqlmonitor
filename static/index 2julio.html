@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MySQL Monitor</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg-body:#060a13;--bg-sidebar:#0a0f1e;--bg-card:#0f1629;--bg-input:#0c1222;
+  --border:#1a2540;--border-light:#243352;
+  --text-primary:#eef2f7;--text-secondary:#8b9dc3;--text-muted:#5a6e8a;
+  --accent:#00d4aa;--accent-dim:rgba(0,212,170,.12);--accent-glow:rgba(0,212,170,.25);
+  --info:#38bdf8;--warning:#f59e0b;--danger:#ef4444;--success:#22c55e;--purple:#a78bfa;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:var(--bg-body);color:var(--text-primary);margin:0;overflow:hidden;height:100vh}
+h1,h2,h3,h4,h5,h6,.fd{font-family:'Space Grotesk',sans-serif}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:3px}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:252px;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:1000;transition:transform .3s}
+.sidebar-brand{padding:18px 20px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--border)}
+.brand-icon{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--accent),#00a88a);display:flex;align-items:center;justify-content:center;font-size:17px;color:#060a13;font-weight:700;box-shadow:0 0 18px var(--accent-glow)}
+.sidebar-brand h5{margin:0;font-size:15px;font-weight:700}
+.sidebar-brand small{color:var(--text-muted);font-size:10.5px}
+.snav{flex:1;overflow-y:auto;padding:14px 0}
+.ngl{padding:8px 20px 5px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--text-muted)}
+.nli{display:flex;align-items:center;gap:11px;padding:9px 20px;margin:2px 10px;border-radius:8px;color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:500;transition:all .2s;cursor:pointer;position:relative}
+.nli:hover{background:var(--accent-dim);color:var(--text-primary)}
+.nli.active{background:var(--accent-dim);color:var(--accent)}
+.nli.active::before{content:'';position:absolute;left:-10px;top:50%;transform:translateY(-50%);width:3px;height:22px;border-radius:0 3px 3px 0;background:var(--accent)}
+.nli i{font-size:16px;width:20px;text-align:center}
+.sfoot{padding:14px 20px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-muted)}
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.sdot.on{background:var(--success);animation:pd 2s ease-in-out infinite}
+.sdot.off{background:var(--danger)}
+@keyframes pd{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}50%{box-shadow:0 0 0 5px rgba(34,197,94,0)}}
+.topbar{position:fixed;top:0;left:252px;right:0;height:56px;background:var(--bg-sidebar);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;z-index:999}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.ptitle{font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:700}
+.bh{display:none;background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:7px;padding:5px 9px;cursor:pointer;font-size:17px}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.tib{background:none;border:1px solid var(--border);color:var(--text-secondary);width:36px;height:36px;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
+.tib:hover{border-color:var(--accent);color:var(--accent)}
+.avatar{width:32px;height:32px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#00a88a);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#060a13}
+.ws-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700}
+.ws-badge.on{background:rgba(34,197,94,.15);color:var(--success)}
+.ws-badge.off{background:rgba(239,68,68,.15);color:var(--danger)}
+.mc{margin-left:252px;margin-top:56px;height:calc(100vh - 56px);overflow-y:auto;padding:22px;position:relative}
+.mc::before{content:'';position:fixed;top:56px;left:252px;right:0;bottom:0;background:radial-gradient(ellipse 500px 350px at 80% 8%,var(--accent-dim),transparent),radial-gradient(ellipse 400px 250px at 20% 80%,rgba(56,189,248,.03),transparent);pointer-events:none;z-index:0}
+.mc>*{position:relative;z-index:1}
+.ps{display:none;animation:fu .3s ease}
+.ps.active{display:block}
+@keyframes fu{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.sc{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:18px;position:relative;overflow:hidden;transition:all .25s}
+.sc:hover{border-color:var(--border-light);transform:translateY(-2px);box-shadow:0 6px 24px rgba(0,0,0,.3)}
+.sc .ci{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;margin-bottom:12px}
+.sc .cv{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;line-height:1.1}
+.sc .cl{font-size:12px;color:var(--text-secondary);margin-top:3px}
+.sc::after{content:'';position:absolute;top:0;right:0;width:100px;height:100px;border-radius:50%;filter:blur(50px);opacity:.06;pointer-events:none}
+.ca::after{background:var(--accent)}.ci2::after{background:var(--info)}.cp::after{background:var(--purple)}.cw::after{background:var(--warning)}.cd::after{background:var(--danger)}
+.sc{opacity:0;transform:translateY(14px);animation:cin .45s ease forwards}
+.sc:nth-child(1){animation-delay:.04s}.sc:nth-child(2){animation-delay:.08s}.sc:nth-child(3){animation-delay:.12s}.sc:nth-child(4){animation-delay:.16s}.sc:nth-child(5){animation-delay:.2s}.sc:nth-child(6){animation-delay:.24s}
+@keyframes cin{to{opacity:1;transform:translateY(0)}}
+.cc{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:18px}
+.cc .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.cc .ct{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600}
+.td{--bs-table-bg:transparent;--bs-table-border-color:var(--border);--bs-table-hover-bg:var(--accent-dim);font-size:12.5px}
+.td thead th{background:rgba(255,255,255,.03);color:var(--text-secondary);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.7px;padding:11px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+.td tbody td{padding:11px 14px;vertical-align:middle;border-bottom:1px solid var(--border);color:var(--text-primary)}
+.td tbody tr{transition:background .15s}
+.sqlc{font-family:'Space Grotesk',monospace;font-size:12px;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--accent)}
+.bs{padding:3px 9px;border-radius:5px;font-size:10.5px;font-weight:600;display:inline-flex;align-items:center;gap:4px}
+.bs-s{background:rgba(34,197,94,.12);color:var(--success)}.bs-d{background:rgba(239,68,68,.12);color:var(--danger)}
+.bs-w{background:rgba(245,158,11,.12);color:var(--warning)}.bs-i{background:rgba(56,189,248,.12);color:var(--info)}
+.bs-p{background:rgba(167,139,250,.12);color:var(--purple)}.bs-m{background:rgba(138,155,195,.12);color:var(--text-secondary)}
+.bac{background:var(--accent);color:#060a13;border:none;font-weight:600;font-size:12.5px;padding:7px 16px;border-radius:7px;transition:all .2s;cursor:pointer}
+.bac:hover{background:#00eabb;color:#060a13;transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow)}
+.bac:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.boc{background:transparent;color:var(--text-secondary);border:1px solid var(--border);font-size:12.5px;padding:7px 16px;border-radius:7px;transition:all .2s;cursor:pointer}
+.boc:hover{border-color:var(--text-secondary);color:var(--text-primary)}
+.bsa{background:var(--accent-dim);color:var(--accent);border:none;font-size:11.5px;padding:4px 11px;border-radius:5px;font-weight:600;transition:all .2s;cursor:pointer}
+.bsa:hover{background:var(--accent);color:#060a13}
+.fb{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:14px 18px;margin-bottom:18px}
+.fb .form-select,.fb .form-control{background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-size:12.5px;border-radius:7px;padding:7px 11px}
+.fb .form-select:focus,.fb .form-control:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim)}
+.fb label{font-size:10.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.alert-card{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:16px 18px;position:relative;overflow:hidden;transition:all .25s}
+.alert-card:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(0,0,0,.3)}
+.alert-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px}
+.ac-cr::before{background:var(--danger)}.ac-wa::before{background:var(--warning)}.ac-in::before{background:var(--info)}
+.alert-card .ai{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.ac-cr .ai{background:rgba(239,68,68,.12);color:var(--danger)}.ac-wa .ai{background:rgba(245,158,11,.12);color:var(--warning)}.ac-in .ai{background:rgba(56,189,248,.12);color:var(--info)}
+.pc{background:var(--border);height:5px;border-radius:3px}.pc .pb{border-radius:3px}
+.tr{border-radius:9px;border:1px solid var(--border);overflow:hidden}
+.dbrow{cursor:pointer}.dbrow:hover td:first-child{color:var(--accent)}
+.modal-content{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;color:var(--text-primary)}
+.modal-header{border-bottom:1px solid var(--border)}.modal-footer{border-top:1px solid var(--border)}
+.btn-close{filter:invert(1) grayscale(100%) brightness(200%)}
+.codeb{background:var(--bg-body);border:1px solid var(--border);border-radius:7px;padding:14px;font-family:'Space Grotesk',monospace;font-size:12.5px;color:var(--accent);overflow-x:auto;white-space:pre-wrap;line-height:1.6}
+.stag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:8px}
+.stag.sql{background:rgba(0,212,170,.1);color:var(--accent)}
+.stag.ps{background:rgba(56,189,248,.1);color:var(--info)}
+.stag.slow{background:rgba(245,158,11,.1);color:var(--warning)}
+.stag.proc{background:rgba(167,139,250,.1);color:var(--purple)}
+.stag.py{background:rgba(239,68,68,.1);color:var(--danger)}
+.stag.bl{background:rgba(0,212,170,.1);color:var(--accent)}
+.sov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999}
+.toast-c{background:var(--bg-card)!important;border:1px solid var(--border)!important;border-radius:9px!important}
+.cfg-input{background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;padding:10px 14px;font-size:14px;width:100%;transition:border-color .2s}
+.cfg-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.cfg-label{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;display:block}
+.cfg-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--danger);display:none;margin-top:10px}
+.cfg-error.show{display:block}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-muted)}
+.empty-state i{font-size:48px;margin-bottom:16px;display:block;opacity:.3}
+.empty-state p{font-size:14px;margin:0}
+
+/* Binlog específico */
+.bl-feed{max-height:460px;overflow-y:auto}
+.bl-feed tbody tr.bl-insert td:first-child{border-left:3px solid var(--success)}
+.bl-feed tbody tr.bl-update td:first-child{border-left:3px solid var(--warning)}
+.bl-feed tbody tr.bl-delete td:first-child{border-left:3px solid var(--danger)}
+.bl-feed tbody tr{animation:blRow .35s ease}
+@keyframes blRow{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.bl-pulse{width:8px;height:8px;border-radius:50%;display:inline-block}
+.bl-pulse.live{background:var(--success);animation:blPulse 1.2s ease-in-out infinite}
+.bl-pulse.dead{background:var(--danger)}
+.bl-pulse.wait{background:var(--warning);animation:blPulse 2s ease-in-out infinite}
+@keyframes blPulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}50%{box-shadow:0 0 0 6px rgba(34,197,94,0)}}
+.info-box{background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:9px;padding:14px 18px;font-size:12px;color:var(--text-secondary);line-height:1.7}
+.info-box code{background:var(--bg-body);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--info)}
+.top-table-item{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.top-table-item:last-child{border-bottom:none}
+.top-table-bar{height:4px;border-radius:2px;background:var(--accent);transition:width .3s}
+
+@media(max-width:991px){
+  .sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.sov.show{display:block}
+  .topbar{left:0}.mc{margin-left:0}.mc::before{left:0}.bh{display:flex}
+}
+@media(max-width:575px){.mc{padding:14px}.sc .cv{font-size:20px}}
+</style>
+</head>
+<body>
+
+<div class="sov" id="sov"></div>
+
+<aside class="sidebar" id="sb">
+  <div class="sidebar-brand">
+    <div class="brand-icon"><i class="bi bi-database-gear"></i></div>
+    <div><h5>MySQL Monitor</h5><small id="sbVersion">v1.1.0</small></div>
+  </div>
+  <nav class="snav">
+    <div class="ngl">Monitoreo</div>
+    <a class="nli active" data-p="dashboard"><i class="bi bi-grid-1x2-fill"></i>Dashboard</a>
+    <a class="nli" data-p="resources"><i class="bi bi-cpu-fill"></i>Recursos del Servidor</a>
+    <div class="ngl mt-2">Consultas</div>
+    <a class="nli" data-p="slow"><i class="bi bi-hourglass-split"></i>Consultas Lentas</a>
+    <div class="ngl mt-2">Esquema</div>
+    <a class="nli" data-p="databases"><i class="bi bi-database-fill"></i>Bases de Datos</a>
+    <a class="nli" data-p="tables"><i class="bi bi-table"></i>Tablas</a>
+    <div class="ngl mt-2">Sesiones</div>
+    <a class="nli" data-p="users"><i class="bi bi-people-fill"></i>Usuarios Conectados</a>
+    <div class="ngl mt-2">Replicación</div>
+    <a class="nli" data-p="binlog"><i class="bi bi-broadcast-pin"></i>Binlog Live <span class="bl-pulse wait ms-auto" id="blNavDot"></span></a>
+    <div class="ngl mt-2">Sistema</div>
+    <a class="nli" data-p="alerts"><i class="bi bi-bell-fill"></i>Alertas <span class="bs bs-d ms-auto" style="font-size:9px;padding:2px 6px;" id="alertCount" hidden>0</span></a>
+  </nav>
+  <div class="sfoot">
+    <div class="mb-1"><span class="sdot off" id="sbDot"></span> <span id="sbStatus">Desconectado</span></div>
+    <div id="sbHost">—</div>
+  </div>
+</aside>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="bh" id="bhbtn"><i class="bi bi-list"></i></button>
+    <div class="ptitle" id="ptitle">Dashboard</div>
+  </div>
+  <div class="topbar-right">
+    <span class="ws-badge off" id="wsBadge">WS OFF</span>
+    <span class="ws-badge off" id="blWsBadge" style="display:none">BINLOG OFF</span>
+    <button class="tib" title="Configuración" onclick="showConfigModal()"><i class="bi bi-gear-fill"></i></button>
+    <button class="tib" title="Refrescar" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i></button>
+    <div class="avatar">DB</div>
+  </div>
+</header>
+
+<main class="mc" id="mc">
+
+<!-- ═══════════ DASHBOARD ═══════════ -->
+<section class="ps active" id="p-dashboard">
+  <div class="row g-3 mb-4">
+    <div class="col-xl col-md-4 col-6"><div class="sc ci2"><span class="stag ps">psutil</span><div class="ci" style="background:rgba(56,189,248,.12);color:var(--info)"><i class="bi bi-cpu"></i></div><div class="cv" style="color:var(--info)" id="d_cpu">—</div><div class="cl">CPU</div></div></div>
+    <div class="col-xl col-md-4 col-6"><div class="sc cp"><span class="stag ps">psutil</span><div class="ci" style="background:rgba(167,139,250,.12);color:var(--purple)"><i class="bi bi-memory"></i></div><div class="cv" style="color:var(--purple)" id="d_ram">—</div><div class="cl">RAM</div></div></div>
+    <div class="col-xl col-md-4 col-6"><div class="sc cw"><span class="stag ps">psutil</span><div class="ci" style="background:rgba(245,158,11,.12);color:var(--warning)"><i class="bi bi-hdd"></i></div><div class="cv" style="color:var(--warning)" id="d_disk">—</div><div class="cl">Disco</div></div></div>
+    <div class="col-xl col-md-4 col-6"><div class="sc ca"><span class="stag proc">STATUS</span><div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-plug"></i></div><div class="cv" id="d_conn" style="color:var(--accent)">—</div><div class="cl">Conexiones</div></div></div>
+    <div class="col-xl col-md-4 col-6"><div class="sc ca"><span class="stag sql">QPS</span><div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-lightning-charge-fill"></i></div><div class="cv" id="d_qps" style="color:var(--accent)">—</div><div class="cl">Consultas / Segundo</div></div></div>
+  </div>
+  <div class="row g-3 mb-4">
+    <div class="col-lg-8"><div class="cc" style="height:300px"><div class="ch"><span class="ct"><i class="bi bi-lightning-charge me-2" style="color:var(--accent)"></i>QPS en Tiempo Real</span></div><canvas id="cQPS"></canvas></div></div>
+    <div class="col-lg-4"><div class="cc" style="height:300px"><div class="ch"><span class="ct"><i class="bi bi-hdd-rack me-2" style="color:var(--warning)"></i>Tamaño por Base</span></div><canvas id="cDBSize"></canvas></div></div>
+  </div>
+  <div class="row g-3">
+    <div class="col-12"><div class="cc" style="height:260px"><div class="ch"><span class="ct"><i class="bi bi-people me-2" style="color:var(--purple)"></i>Conexiones Activas</span></div><canvas id="cConnH"></canvas></div></div>
+  </div>
+</section>
+
+<!-- ═══════════ CONSULTAS LENTAS ═══════════ -->
+<section class="ps" id="p-slow">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div><span class="stag slow">mysql.slow_log</span></div>
+    <button class="boc btn-sm" onclick="loadSlowQueries()"><i class="bi bi-arrow-clockwise me-1"></i>Refrescar</button>
+  </div>
+  <div class="fb">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3"><label>Tiempo mínimo (s)</label><input type="number" class="form-control" id="slowMinTime" value="2"></div>
+      <div class="col-md-3"><label>Base de datos</label><select class="form-select" id="slowDb"><option value="">Todas</option></select></div>
+      <div class="col-md-3"><label>Fecha desde</label><input type="date" class="form-control" id="slowDate"></div>
+      <div class="col-md-3"><button class="bac w-100" onclick="loadSlowQueries()"><i class="bi bi-funnel me-1"></i>Filtrar</button></div>
+    </div>
+  </div>
+  <div class="tr"><table class="table td table-hover mb-0" id="tSlow"><thead><tr><th>#</th><th>Consulta SQL</th><th>Tiempo</th><th>Rows Examined</th><th>Rows Sent</th><th>Base</th><th>Timestamp</th></tr></thead><tbody id="slowBody"><tr><td colspan="7" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Cargando consultas lentas...</p></td></tr></tbody></table></div>
+</section>
+
+<!-- ═══════════ BASES DE DATOS ═══════════ -->
+<section class="ps" id="p-databases">
+  <div class="mb-3"><span class="stag sql">information_schema</span><span class="text-secondary ms-2" style="font-size:12px">Clic en una fila para ver sus tablas</span></div>
+  <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>Nombre</th><th>Cotejamiento</th><th>Tamaño</th><th>Tablas</th><th>Última Modificación</th></tr></thead><tbody id="dbBody"><tr><td colspan="5" class="empty-state"><i class="bi bi-database"></i><p>Cargando bases de datos...</p></td></tr></tbody></table></div>
+</section>
+
+<!-- ═══════════ TABLAS ═══════════ -->
+<section class="ps" id="p-tables">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-2"><span class="stag sql">information_schema.TABLES</span><span class="fd" style="font-size:14px;font-weight:600" id="tblL">—</span><span class="bs bs-i" id="tblC">—</span></div>
+    <button class="boc btn-sm" onclick="go('databases')"><i class="bi bi-arrow-left me-1"></i>Volver</button>
+  </div>
+  <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>Tabla</th><th>Motor</th><th>Datos</th><th>Índices</th><th>Total</th><th>Rows</th><th>Auto Increment</th><th>Actualización</th></tr></thead><tbody id="tblBody"><tr><td colspan="8" class="empty-state"><i class="bi bi-table"></i><p>Selecciona una base de datos</p></td></tr></tbody></table></div>
+</section>
+
+<!-- ═══════════ USUARIOS ═══════════ -->
+<section class="ps" id="p-users">
+  <div class="mb-3"><span class="stag proc">SHOW FULL PROCESSLIST</span></div>
+  <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>Thread ID</th><th>Usuario</th><th>Host</th><th>Base</th><th>Comando</th><th>Tiempo</th><th>Estado</th><th>Consulta Actual</th></tr></thead><tbody id="usersBody"><tr><td colspan="8" class="empty-state"><i class="bi bi-people"></i><p>Cargando sesiones...</p></td></tr></tbody></table></div>
+</section>
+
+<!-- ═══════════ RECURSOS ═══════════ -->
+<section class="ps" id="p-resources">
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="sc ci2"><div class="ci" style="background:rgba(56,189,248,.12);color:var(--info)"><i class="bi bi-cpu"></i></div><div class="cv" style="color:var(--info)" id="r_cpu">—</div><div class="cl">CPU</div><div class="pc mt-3"><div class="pb" id="r_cpu_bar" style="width:0;background:var(--info)"></div></div></div></div>
+    <div class="col-md-4"><div class="sc cp"><div class="ci" style="background:rgba(167,139,250,.12);color:var(--purple)"><i class="bi bi-memory"></i></div><div class="cv" style="color:var(--purple)" id="r_ram">—</div><div class="cl">RAM</div><div class="pc mt-3"><div class="pb" id="r_ram_bar" style="width:0;background:var(--purple)"></div></div></div></div>
+    <div class="col-md-4"><div class="sc cw"><div class="ci" style="background:rgba(245,158,11,.12);color:var(--warning)"><i class="bi bi-hdd"></i></div><div class="cv" style="color:var(--warning)" id="r_disk">—</div><div class="cl">Disco</div><div class="pc mt-3"><div class="pb" id="r_disk_bar" style="width:0;background:var(--warning)"></div></div></div></div>
+  </div>
+  <div class="row g-3 mb-4">
+    <div class="col-md-6"><div class="sc"><span class="stag sql">SHOW GLOBAL STATUS</span><h6 class="fd mt-2 mb-3" style="font-size:14px">Búfers InnoDB</h6><div id="innodbStats"><div class="empty-state" style="padding:20px"><p>Esperando datos...</p></div></div></div></div>
+    <div class="col-md-6"><div class="sc"><span class="stag proc">Threads</span><h6 class="fd mt-2 mb-3" style="font-size:14px">Estadísticas de Conexiones</h6><div id="connStats"><div class="empty-state" style="padding:20px"><p>Esperando datos...</p></div></div></div></div>
+  </div>
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="cc" style="height:280px"><div class="ch"><span class="ct"><i class="bi bi-database me-2" style="color:var(--accent)"></i>Espacio por Base</span></div><canvas id="cSpDB"></canvas></div></div>
+    <div class="col-lg-6"><div class="cc" style="height:280px"><div class="ch"><span class="ct"><i class="bi bi-table me-2" style="color:var(--warning)"></i>Top Tablas por Tamaño</span></div><canvas id="cSpTbl"></canvas></div></div>
+  </div>
+</section>
+
+<!-- ═══════════ BINLOG LIVE ═══════════ -->
+<section class="ps" id="p-binlog">
+  <!-- Info box colapsable -->
+  <div class="mb-3">
+    <a class="text-secondary" data-bs-toggle="collapse" href="#blInfoBox" style="font-size:12px;cursor:pointer;text-decoration:none">
+      <i class="bi bi-info-circle me-1"></i>Requisitos y configuración
+    </a>
+    <div class="collapse mt-2" id="blInfoBox">
+      <div class="info-box">
+        <strong style="color:var(--text-primary)">Requisitos en MySQL 5.7:</strong><br>
+        <code>log_bin=ON</code> · <code>binlog_format=ROW</code> · <code>binlog_row_image=FULL</code><br><br>
+        <strong style="color:var(--text-primary)">Privilegios necesarios:</strong><br>
+        <code>GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'tu_usuario'@'%';</code><br><br>
+        <strong style="color:var(--text-primary)">Dependencia Python:</strong><br>
+        <code>pip install pymysql-replication</code><br><br>
+        <strong style="color:var(--text-primary)">Cómo funciona:</strong> FastAPI se conecta como esclavo silencioso (server_id=100). Lee eventos INSERT/UPDATE/DELETE del binlog en tiempo real sin afectar rendimiento. Los eventos se guardan en SQLite y se transmiten vía WebSocket.
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc ca">
+        <span class="stag bl">BINLOG</span>
+        <div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-collection-fill"></i></div>
+        <div class="cv" id="blTotal" style="color:var(--accent)">0</div>
+        <div class="cl">Total Eventos</div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc ci2">
+        <span class="stag bl">STREAM</span>
+        <div class="ci" style="background:rgba(56,189,248,.12);color:var(--info)"><i class="bi bi-speedometer2"></i></div>
+        <div class="cv" id="blEPS" style="color:var(--info)">0</div>
+        <div class="cl">Eventos / Segundo</div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc" style="--after-bg:var(--success)">
+        <div class="ci" style="background:rgba(34,197,94,.12);color:var(--success)"><i class="bi bi-plus-circle-fill"></i></div>
+        <div class="cv" id="blIns" style="color:var(--success)">0</div>
+        <div class="cl">INSERT</div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc cw">
+        <div class="ci" style="background:rgba(245,158,11,.12);color:var(--warning)"><i class="bi bi-pencil-fill"></i></div>
+        <div class="cv" id="blUpd" style="color:var(--warning)">0</div>
+        <div class="cl">UPDATE</div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc cd">
+        <div class="ci" style="background:rgba(239,68,68,.12);color:var(--danger)"><i class="bi bi-trash3-fill"></i></div>
+        <div class="cv" id="blDel" style="color:var(--danger)">0</div>
+        <div class="cl">DELETE</div>
+      </div>
+    </div>
+    <div class="col-xl col-md-4 col-6">
+      <div class="sc">
+        <span class="stag bl">STATUS</span>
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="bl-pulse wait" id="blStatusDot"></span>
+          <span class="fd" style="font-size:13px;font-weight:700" id="blStatusText">Iniciando...</span>
+        </div>
+        <div class="cl" id="blPosText">—</div>
+        <div class="cl" id="blErrorText" style="color:var(--danger);display:none"></div>
+        <div class="mt-2"><button class="bsa" onclick="restartBinlog()"><i class="bi bi-arrow-repeat me-1"></i>Reiniciar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="fb">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3"><label>Tipo de evento</label><select class="form-select" id="blFilterType"><option value="">Todos</option><option value="INSERT">INSERT</option><option value="UPDATE">UPDATE</option><option value="DELETE">DELETE</option></select></div>
+      <div class="col-md-3"><label>Esquema</label><input type="text" class="form-control" id="blFilterSchema" placeholder="Ej: mydb"></div>
+      <div class="col-md-3"><label>Tabla</label><input type="text" class="form-control" id="blFilterTable" placeholder="Ej: users"></div>
+      <div class="col-md-3 d-flex gap-2">
+        <button class="bac flex-fill" onclick="loadBinlogHistory()"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+        <button class="boc" onclick="clearBinlogHistory()" title="Limpiar historial"><i class="bi bi-trash3"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feed + Sidebar -->
+  <div class="row g-3 mb-4">
+    <div class="col-lg-8">
+      <div class="cc" style="padding:0;overflow:hidden">
+        <div class="ch" style="padding:14px 18px 0"><span class="ct"><i class="bi bi-broadcast me-2" style="color:var(--accent)"></i>Feed en Tiempo Real</span><span class="bs bs-m ms-2" id="blFeedCount">0</span></div>
+        <div class="bl-feed" id="blFeedWrap">
+          <table class="table td table-hover mb-0" style="margin:0">
+
+            <thead><tr><th style="width:30px"></th><th>Hora</th><th>Tipo</th><th>Tabla</th><th>Datos</th><th>Filas</th><th>Posición</th></tr></thead>
+            
+            <tbody id="blFeedBody">
+              <tr><td colspan="7" class="empty-state"><i class="bi bi-broadcast-pin"></i><p>Conectando al binlog...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="cc mb-3" style="height:220px">
+        <div class="ch"><span class="ct"><i class="bi bi-pie-chart me-2" style="color:var(--accent)"></i>Distribución</span></div>
+        <canvas id="cBlType"></canvas>
+      </div>
+      <div class="cc">
+        <div class="ch"><span class="ct"><i class="bi bi-trophy me-2" style="color:var(--warning)"></i>Top Tablas</span></div>
+        <div id="blTopTables"><div class="empty-state" style="padding:16px"><p>Sin datos</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline chart -->
+  <div class="row g-3">
+    <div class="col-12">
+      <div class="cc" style="height:240px">
+        <div class="ch"><span class="ct"><i class="bi bi-graph-up me-2" style="color:var(--info)"></i>Eventos por Minuto (última hora)</span></div>
+        <canvas id="cBlTime"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ ALERTAS ═══════════ -->
+<section class="ps" id="p-alerts">
+  <div class="mb-3"><span class="stag py">Evaluación de umbrales</span></div>
+  <div id="alertBox"><div class="empty-state"><i class="bi bi-bell"></i><p>Sin alertas activas</p></div></div>
+</section>
+
+</main>
+
+<!-- ═══ MODAL CONFIGURACIÓN ═══ -->
+<div class="modal fade" id="configModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title fd"><i class="bi bi-gear-fill me-2" style="color:var(--accent)"></i>Configurar conexión a MySQL</h5></div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="cfg-label">Host</label><input type="text" class="cfg-input" id="cfgHost" value="localhost"></div>
+        <div class="row g-3 mb-3">
+          <div class="col-6"><label class="cfg-label">Puerto</label><input type="number" class="cfg-input" id="cfgPort" value="3306"></div>
+          <div class="col-6"><label class="cfg-label">Intervalo (seg)</label><input type="number" class="cfg-input" id="cfgInterval" value="2" min="0.5" step="0.5"></div>
+        </div>
+        <div class="mb-3"><label class="cfg-label">Usuario</label><input type="text" class="cfg-input" id="cfgUser" value="root"></div>
+        <div class="mb-3"><label class="cfg-label">Contraseña</label><input type="password" class="cfg-input" id="cfgPass" placeholder="Dejar vacío si no tiene"></div>
+        <div class="cfg-error" id="cfgError"></div>
+        <div id="cfgOk" class="mt-2" style="display:none"><div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--success)"><i class="bi bi-check-circle-fill me-2"></i>Conexión exitosa</div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="boc" onclick="closeConfigModal()">Cancelar</button>
+        <button class="bac" id="cfgSaveBtn" onclick="saveConfig()"><span id="cfgSaveText"><i class="bi bi-plug me-1"></i>Guardar y Conectar</span><span id="cfgSaveSpinner" style="display:none"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Conectando...</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL DETALLE ═══ -->
+<div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title fd" id="mTitle">Detalle</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="mBody"></div><div class="modal-footer"><button type="button" class="boc" data-bs-dismiss="modal">Cerrar</button><button type="button" class="bac" id="copyBtn"><i class="bi bi-clipboard me-1"></i>Copiar SQL</button></div></div></div></div>
+
+<!-- ═══ TOAST ═══ -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100"><div id="toastEl" class="toast align-items-center border-0 toast-c" role="alert"><div class="d-flex"><div class="toast-body" id="toastBd" style="font-size:12.5px;color:var(--text-primary)"></div><button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" style="filter:invert(1) brightness(200%)"></button></div></div></div>
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   ESTADO GLOBAL
+   ═══════════════════════════════════════════════════════════════ */
+let ws = null, blWs = null;
+let curPage = 'dashboard', selDB = '';
+let qpsHistory = [], connHistory = [];
+const C = {};
+let configModalInstance = null, mysqlConnected = false;
+
+// Estado del binlog
+let blEvents = [];           // Buffer de eventos en el feed (máx 200)
+const BL_FEED_MAX = 200;
+let blAutoScroll = true;     // Auto-scroll del feed
+let blStatusInterval = null; // Polling de estado
+
+const titles = {
+  dashboard:'Dashboard', slow:'Consultas Lentas', databases:'Bases de Datos',
+  tables:'Tablas', users:'Usuarios Conectados', resources:'Recursos del Servidor',
+  alerts:'Alertas', binlog:'Binlog Live'
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   WEBSOCKET — Métricas
+   ═══════════════════════════════════════════════════════════════ */
+function connectWS(){
+  const p=location.protocol==='https:'?'wss':'ws';
+  ws=new WebSocket(`${p}://${location.host}/ws/metrics`);
+  ws.onopen=()=>setWSStatus(true,'wsBadge','WS');
+  ws.onmessage=e=>{try{processSnapshot(JSON.parse(e.data))}catch(x){}};
+  ws.onclose=()=>{setWSStatus(false,'wsBadge','WS');setTimeout(connectWS,3000)};
+  ws.onerror=()=>ws.close();
+}
+
+function setWSStatus(on,id,prefix){
+  const b=document.getElementById(id);if(!b)return;
+  b.className='ws-badge '+(on?'on':'off');
+  b.textContent=(prefix||'WS')+' '+(on?'ON':'OFF');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WEBSOCKET — Binlog
+   ═══════════════════════════════════════════════════════════════ */
+function connectBinlogWS(){
+  const p=location.protocol==='https:'?'wss':'ws';
+  blWs=new WebSocket(`${p}://${location.host}/ws/binlog`);
+  blWs.onopen=()=>{
+    setWSStatus(true,'blWsBadge','BINLOG');
+    document.getElementById('blWsBadge').style.display='';
+  };
+  blWs.onmessage=e=>{
+    try{
+      const msg=JSON.parse(e.data);
+      if(msg.type==='binlog_event') handleBinlogEvent(msg.data);
+    }catch(x){}
+  };
+  blWs.onclose=()=>{
+    setWSStatus(false,'blWsBadge','BINLOG');
+    setTimeout(connectBinlogWS,3000);
+  };
+  blWs.onerror=()=>blWs.close();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PROCESAR SNAPSHOT MÉTRICAS
+   ═══════════════════════════════════════════════════════════════ */
+function processSnapshot(data){
+  const sys=data.system||{}, st=data.mysql_status||{}, proc=data.processlist||[], alrts=data.alerts||[];
+  mysqlConnected=st.mysql_connected===true;
+  updateSidebarStatus(mysqlConnected);
+  if(!mysqlConnected&&!sessionStorage.getItem('configShown')){sessionStorage.setItem('configShown','1');showConfigModal()}
+
+  if(sys.cpu_percent!==undefined){setText('d_cpu',sys.cpu_percent+'%');setText('r_cpu',sys.cpu_percent+'%');setBar('r_cpu_bar',sys.cpu_percent)}
+  if(sys.ram_percent!==undefined){setText('d_ram',sys.ram_percent+'%');setText('r_ram',sys.ram_percent+'%');setBar('r_ram_bar',sys.ram_percent)}
+  if(sys.disk_percent!==undefined){setText('d_disk',sys.disk_percent+'%');setText('r_disk',sys.disk_percent+'%');setBar('r_disk_bar',sys.disk_percent)}
+  if(st.threads_connected!==undefined) setText('d_conn',st.threads_connected);
+  if(st.qps!==undefined){setText('d_qps',st.qps.toLocaleString());qpsHistory.push(st.qps);if(qpsHistory.length>60)qpsHistory.shift();updateQPSChart()}
+  if(st.threads_connected!==undefined){connHistory.push(st.threads_connected);if(connHistory.length>60)connHistory.shift();updateConnChart()}
+  renderProcesslist(proc);
+  renderInnodbStats(st);
+  renderConnStats(st);
+  renderAlerts(alrts);
+  if(curPage==='resources') loadResourceCharts();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BINLOG — Manejar evento entrante
+   ═══════════════════════════════════════════════════════════════ */
+function handleBinlogEvent(ev){
+  // Aplicar filtros activos
+  const ft=document.getElementById('blFilterType').value;
+  const fs=document.getElementById('blFilterSchema').value.trim().toLowerCase();
+  const fb=document.getElementById('blFilterTable').value.trim().toLowerCase();
+  if(ft&&ev.event_type!==ft) return;
+  if(fs&&!(ev.schema||'').toLowerCase().includes(fs)) return;
+  if(fb&&!(ev.table||'').toLowerCase().includes(fb)) return;
+
+  // Si viene de la API historial, convertir row_data a row_preview
+  if(!ev.row_preview && ev.row_data) {
+    try {
+      const rows = typeof ev.row_data === 'string' ? JSON.parse(ev.row_data) : ev.row_data;
+      if(rows && rows.length > 0) ev.row_preview = rows[0];
+    } catch(e){}
+  }
+
+  blEvents.unshift(ev);
+  if(blEvents.length>BL_FEED_MAX) blEvents.length=BL_FEED_MAX;
+  renderBinlogFeed();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BINLOG — Renderizar Feed con Datos
+   ═══════════════════════════════════════════════════════════════ */
+function renderBinlogFeed(){
+  const body=document.getElementById('blFeedBody');
+  if(!blEvents.length){body.innerHTML='<tr><td colspan="7" class="empty-state"><i class="bi bi-broadcast-pin"></i><p>Esperando eventos del binlog...</p></td></tr>';return}
+  document.getElementById('blFeedCount').textContent=blEvents.length+' eventos';
+
+  const show=blEvents.slice(0,100);
+  let html='';
+  show.forEach((ev, idx) => {
+    const t=ev.event_type||'?';
+    const cls=t==='INSERT'?'bl-insert':t==='UPDATE'?'bl-update':t==='DELETE'?'bl-delete':'';
+    const bsCls=t==='INSERT'?'bs-s':t==='UPDATE'?'bs-w':t==='DELETE'?'bs-d':'bs-m';
+    const time=ev.event_time?ev.event_time.slice(11,19):'—';
+    
+    // Formatear preview de datos en una línea
+    let previewHtml = '<span class="text-muted" style="font-size:11px">—</span>';
+    if(ev.row_preview) {
+      let obj = ev.row_preview;
+      if(obj.after) obj = obj.after;
+      else if(obj.values) obj = obj.values;
+      
+      const parts = Object.entries(obj).slice(0, 3).map(([k,v]) => 
+        `<span style="color:var(--text-muted)">${esc(k)}:</span> <span style="color:var(--accent)">${esc(String(v).substring(0, 20))}</span>`
+      );
+      const extra = Object.keys(obj).length > 3 ? '…' : '';
+      previewHtml = `<div style="font-size:11px; line-height:1.4; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${parts.join(', ')}${extra}</div>`;
+    }
+    
+    html += `<tr class="${cls}" style="cursor:pointer" onclick="toggleBlDetail(this, ${idx})">
+      <td style="width:30px"><i class="bi bi-chevron-right" style="font-size:10px; transition: transform .2s"></i></td>
+      <td class="text-muted" style="font-size:11.5px;white-space:nowrap">${time}</td>
+      <td><span class="bs ${bsCls}">${t}</span></td>
+      <td><span class="fd" style="font-weight:600;font-size:12px">${esc(ev.schema)}.${esc(ev.table)}</span></td>
+      <td>${previewHtml}</td>
+      <td class="fd" style="font-weight:600">${ev.affected_rows||1}</td>
+      <td class="text-muted" style="font-size:11px;white-space:nowrap">${esc(ev.log_file)}:${ev.log_pos}</td>
+    </tr>
+    <tr class="bl-detail-row" style="display:none">
+      <td colspan="7" style="padding:0 14px 14px 50px; background: rgba(0,0,0,.2)">
+        <div class="codeb" style="font-size:11.5px; max-height:150px; overflow-y:auto" id="blDetail-${idx}">Cargando...</div>
+      </td>
+    </tr>`;
+  });
+  body.innerHTML = html;
+
+  if(blAutoScroll){
+    const wrap=document.getElementById('blFeedWrap');
+    wrap.scrollTop=0;
+  }
+}
+
+function toggleBlDetail(row, idx) {
+  const detailRow = row.nextElementSibling;
+  const icon = row.querySelector('i');
+  const isVisible = detailRow.style.display !== 'none';
+  
+  // Cerrar otros detalles abiertos
+  document.querySelectorAll('.bl-detail-row').forEach(r => r.style.display = 'none');
+  document.querySelectorAll('.bl-feed i.bi-chevron-right').forEach(i => i.style.transform = '');
+  
+  if (!isVisible) {
+    detailRow.style.display = '';
+    icon.style.transform = 'rotate(90deg)';
+    
+    const ev = blEvents[idx];
+    let detailContent = '';
+    
+    if(ev.row_preview) {
+      if(ev.event_type === 'UPDATE' && ev.row_preview.before && ev.row_preview.after) {
+        detailContent = '<div style="margin-bottom:8px; color:var(--danger); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px">Antes</div>' + formatRowData(ev.row_preview.before);
+        detailContent += '<div style="margin:12px 0 8px; color:var(--success); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px">Después</div>' + formatRowData(ev.row_preview.after);
+      } else {
+        detailContent = formatRowData(ev.row_preview.values || ev.row_preview);
+      }
+    } else {
+      detailContent = '<span class="text-muted">Preview no disponible.</span>';
+    }
+    
+    document.getElementById('blDetail-'+idx).innerHTML = detailContent;
+  }
+}
+
+function formatRowData(obj) {
+  if(!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj).map(([k, v]) => {
+    const val = v === null ? 'NULL' : String(v);
+    const display = val.length > 100 ? val.substring(0, 100) + '…' : val;
+    const color = v === null ? 'var(--text-muted)' : 'var(--accent)';
+    return `<span style="color:var(--info)">${esc(k)}</span>: <span style="color:${color}">${esc(display)}</span>`;
+  }).join('<br>');
+}
+
+// Detectar scroll manual del usuario para pausar auto-scroll
+document.addEventListener('DOMContentLoaded',()=>{
+  const wrap=document.getElementById('blFeedWrap');
+  if(wrap){
+    let scrollTimeout;
+    wrap.addEventListener('scroll',()=>{
+      blAutoScroll=false;
+      clearTimeout(scrollTimeout);
+      scrollTimeout=setTimeout(()=>{blAutoScroll=true},3000);
+    });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   BINLOG — Polling de estado
+   ═══════════════════════════════════════════════════════════════ */
+async function pollBinlogStatus(){
+  try{
+    const r=await fetch('/api/binlog/status');
+    const s=await r.json();
+    setText('blTotal',(s.total_events||0).toLocaleString());
+    setText('blEPS',s.events_per_second||'0');
+    setText('blIns',(s.insert_count||0).toLocaleString());
+    setText('blUpd',(s.update_count||0).toLocaleString());
+    setText('blDel',(s.delete_count||0).toLocaleString());
+
+    const dot=document.getElementById('blStatusDot');
+    const txt=document.getElementById('blStatusText');
+    const pos=document.getElementById('blPosText');
+    const errEl=document.getElementById('blErrorText');
+    const navDot=document.getElementById('blNavDot');
+
+    if(s.streamer_running){
+      dot.className='bl-pulse live';
+      txt.textContent='Leyendo binlog';
+      txt.style.color='var(--success)';
+      navDot.className='bl-pulse live ms-auto';
+    }else if(s.error){
+      dot.className='bl-pulse dead';
+      txt.textContent='Error';
+      txt.style.color='var(--danger)';
+      navDot.className='bl-pulse dead ms-auto';
+      errEl.style.display='block';
+      errEl.textContent=s.error;
+    }else{
+      dot.className='bl-pulse wait';
+      txt.textContent='Reconectando...';
+      txt.style.color='var(--warning)';
+      navDot.className='bl-pulse wait ms-auto';
+    }
+
+    if(s.current_log_file) pos.textContent=s.current_log_file+':'+s.current_log_pos;
+    errEl.style.display=s.error?'block':'none';
+
+    renderBlTopTables(s.tables_hot||[]);
+    updateBlTypeChart(s.insert_count||0,s.update_count||0,s.delete_count||0);
+
+  }catch(e){}
+}
+
+function renderBlTopTables(tables){
+  const el=document.getElementById('blTopTables');
+  if(!tables.length){el.innerHTML='<div class="empty-state" style="padding:16px"><p>Sin datos</p></div>';return}
+  const max=tables[0][1];
+  el.innerHTML=tables.slice(0,8).map(([name,cnt])=>{
+    const pct=max>0?((cnt/max)*100).toFixed(0):0;
+    return `<div class="top-table-item">
+      <div><div class="fd" style="font-size:12px;font-weight:600">${esc(name)}</div><div class="text-muted" style="font-size:10.5px">${cnt} eventos</div></div>
+      <div style="width:80px"><div style="background:var(--border);height:4px;border-radius:2px"><div class="top-table-bar" style="width:${pct}%"></div></div></div>
+    </div>`;
+  }).join('');
+}
+
+async function loadBinlogStats(){
+  try{
+    const r=await fetch('/api/binlog/stats');
+    const s=await r.json();
+    updateBlTimeChart(s.per_minute||[]);
+  }catch(e){}
+}
+
+async function loadBinlogHistory(){
+  const ft=document.getElementById('blFilterType').value;
+  const fs=document.getElementById('blFilterSchema').value.trim();
+  const fb=document.getElementById('blFilterTable').value.trim();
+  let url='/api/binlog/events?limit=200&include_data=true';
+  if(ft) url+='&event_type='+ft;
+  if(fs) url+='&schema='+encodeURIComponent(fs);
+  if(fb) url+='&table='+encodeURIComponent(fb);
+  try{
+    const r=await fetch(url);
+    blEvents=await r.json();
+    renderBinlogFeed();
+  }catch(e){}
+}
+
+async function clearBinlogHistory(){
+  if(!confirm('¿Limpiar todo el historial de eventos del binlog?')) return;
+  try{
+    await fetch('/api/binlog/events',{method:'DELETE'});
+    blEvents=[];
+    renderBinlogFeed();
+    showToast('Historial de binlog limpiado');
+  }catch(e){}
+}
+
+async function restartBinlog(){
+  try{
+    await fetch('/api/binlog/restart',{method:'POST'});
+    showToast('Streamer de binlog reiniciado');
+  }catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+function setText(id,v){const e=document.getElementById(id);if(e)e.textContent=v}
+function setBar(id,pct){const e=document.getElementById(id);if(e)e.style.width=Math.min(100,pct)+'%'}
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function formatNum(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(0)+'K';return n}
+function showToast(m){document.getElementById('toastBd').innerHTML='<i class="bi bi-check-circle-fill me-2" style="color:var(--accent)"></i>'+m;new bootstrap.Toast(document.getElementById('toastEl')).show()}
+
+function updateSidebarStatus(c){
+  const d=document.getElementById('sbDot'),s=document.getElementById('sbStatus'),h=document.getElementById('sbHost');
+  if(c){d.className='sdot on';s.textContent='MySQL 5.7 — Online'}else{d.className='sdot off';s.textContent='Sin conexión';h.textContent='—'}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHARTS — Métricas
+   ═══════════════════════════════════════════════════════════════ */
+const cO={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f1629',borderColor:'#1a2540',borderWidth:1,titleColor:'#eef2f7',bodyColor:'#8b9dc3',padding:10,cornerRadius:7,displayColors:false}},scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#5a6e8a',font:{size:10},maxTicksLimit:10}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#5a6e8a',font:{size:10}}}},animation:false};
+
+function initDashCharts(){
+  if(C.qps)return;
+  C.qps=new Chart(document.getElementById('cQPS'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#00d4aa',backgroundColor:'rgba(0,212,170,.07)',borderWidth:2,fill:true,tension:.4,pointRadius:0}]},options:{...cO,scales:{...cO.scales,y:{...cO.scales.y,beginAtZero:false}}}});
+  C.connH=new Chart(document.getElementById('cConnH'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,.07)',borderWidth:2,fill:true,tension:.4,pointRadius:0}]},options:cO});
+}
+
+function updateQPSChart(){if(!C.qps||!qpsHistory.length)return;const l=tsLabel();C.qps.data.labels.push(l);C.qps.data.datasets[0].data.push(qpsHistory[qpsHistory.length-1]);if(C.qps.data.labels.length>60){C.qps.data.labels.shift();C.qps.data.datasets[0].data.shift()}C.qps.update('none')}
+function updateConnChart(){if(!C.connH||!connHistory.length)return;const l=tsLabel();C.connH.data.labels.push(l);C.connH.data.datasets[0].data.push(connHistory[connHistory.length-1]);if(C.connH.data.labels.length>60){C.connH.data.labels.shift();C.connH.data.datasets[0].data.shift()}C.connH.update('none')}
+function tsLabel(){const n=new Date();return n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0')+':'+n.getSeconds().toString().padStart(2,'0')}
+
+function initDBSizeDonut(){
+  if(C.dbS)return;
+  C.dbS=new Chart(document.getElementById('cDBSize'),{type:'doughnut',data:{labels:[],datasets:[{data:[],backgroundColor:['#00d4aa','#38bdf8','#f59e0b','#a78bfa','#ef4444','#64748b'],borderColor:'#0f1629',borderWidth:3,hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{color:'#8b9dc3',font:{size:10},padding:10,usePointStyle:true,pointStyleWidth:8}},tooltip:{...cO.plugins.tooltip,callbacks:{label:c=>` ${c.label}: ${c.parsed} GB`}}}}});
+}
+
+function initResourceCharts(){
+  if(C.spDB)return;
+  C.spDB=new Chart(document.getElementById('cSpDB'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:'rgba(0,212,170,.6)',borderRadius:5,borderSkipped:false,barThickness:24}]},options:{indexAxis:'y',...cO,scales:{x:{...cO.scales.x,ticks:{...cO.scales.x.ticks,callback:v=>v+' GB'}},y:{...cO.scales.y,grid:{display:false}}}}});
+  C.spTbl=new Chart(document.getElementById('cSpTbl'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:'rgba(245,158,11,.55)',borderRadius:5,borderSkipped:false,barThickness:16}]},options:{indexAxis:'y',...cO,scales:{x:{...cO.scales.x,ticks:{...cO.scales.x.ticks,callback:v=>v+' GB'}},y:{...cO.scales.y,grid:{display:false},ticks:{...cO.scales.y.ticks,font:{size:10}}}}}});
+}
+
+let resourceChartsLoaded=false;
+async function loadResourceCharts(){
+  if(resourceChartsLoaded)return;
+  try{
+    const[dbRes,tblRes]=await Promise.all([fetch('/api/databases').then(r=>r.json()),fetch('/api/databases/top-tables?limit=8').then(r=>r.json())]);
+    if(!C.spDB)initResourceCharts();
+    C.spDB.data.labels=dbRes.map(d=>d.name);C.spDB.data.datasets[0].data=dbRes.map(d=>parseFloat((d.size_bytes/(1024**3)).toFixed(2)));C.spDB.update();
+    C.spTbl.data.labels=tblRes.map(t=>t.schema+'.'+t.table);C.spTbl.data.datasets[0].data=tblRes.map(t=>parseFloat((t.size_bytes/(1024**3)).toFixed(2)));C.spTbl.update();
+    updateDBSizeDonut(dbRes);
+    resourceChartsLoaded=true;
+  }catch(e){}
+}
+
+function updateDBSizeDonut(l){if(!C.dbS)return;C.dbS.data.labels=l.map(d=>d.name);C.dbS.data.datasets[0].data=l.map(d=>parseFloat((d.size_bytes/(1024**3)).toFixed(2)));C.dbS.update()}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHARTS — Binlog
+   ═══════════════════════════════════════════════════════════════ */
+function initBlCharts(){
+  if(C.blType)return;
+  C.blType=new Chart(document.getElementById('cBlType'),{
+    type:'doughnut',
+    data:{labels:['INSERT','UPDATE','DELETE'],datasets:[{data:[0,0,0],backgroundColor:['rgba(34,197,94,.7)','rgba(245,158,11,.7)','rgba(239,68,68,.7)'],borderColor:'#0f1629',borderWidth:3,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{color:'#8b9dc3',font:{size:10},padding:8,usePointStyle:true,pointStyleWidth:8}},tooltip:{...cO.plugins.tooltip}}}
+  });
+  C.blTime=new Chart(document.getElementById('cBlTime'),{
+    type:'line',
+    data:{labels:[],datasets:[
+      {label:'INSERT',data:[],borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.08)',borderWidth:1.5,fill:true,tension:.3,pointRadius:0,stacked:true},
+      {label:'UPDATE',data:[],borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.08)',borderWidth:1.5,fill:true,tension:.3,pointRadius:0,stacked:true},
+      {label:'DELETE',data:[],borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.08)',borderWidth:1.5,fill:true,tension:.3,pointRadius:0,stacked:true},
+    ]},
+    options:{...cO,plugins:{...cO.plugins,legend:{display:true,position:'top',align:'end',labels:{color:'#8b9dc3',font:{size:10},padding:12,usePointStyle:true,pointStyleWidth:8,boxWidth:8}}},scales:{...cO.scales,y:{...cO.scales.y,stacked:true,beginAtZero:true}}}
+  });
+}
+
+function updateBlTypeChart(ins,upd,del){
+  if(!C.blType)return;
+  C.blType.data.datasets[0].data=[ins,upd,del];
+  C.blType.update('none');
+}
+
+function updateBlTimeChart(perMinute){
+  if(!C.blTime)return;
+  const labels=perMinute.map(p=>{const m=p.minute||'';return m.slice(11)||m});
+  const totals=perMinute.map(p=>p.cnt||0);
+  C.blTime.data.labels=labels;
+  const s=binlog_service_stats||{insert_count:1,update_count:1,delete_count:1};
+  const total=s.insert_count+s.update_count+s.delete_count||1;
+  const pI=s.insert_count/total, pU=s.update_count/total, pD=s.delete_count/total;
+  C.blTime.data.datasets[0].data=totals.map(t=>Math.round(t*pI));
+  C.blTime.data.datasets[1].data=totals.map(t=>Math.round(t*pU));
+  C.blTime.data.datasets[2].data=totals.map(t=>Math.round(t*pD));
+  C.blTime.update('none');
+}
+let binlog_service_stats=null;
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDER TABLAS
+   ═══════════════════════════════════════════════════════════════ */
+function renderProcesslist(list){
+  const b=document.getElementById('usersBody');
+  if(!list.length){b.innerHTML='<tr><td colspan="8" class="empty-state"><i class="bi bi-people"></i><p>No hay sesiones activas</p></td></tr>';return}
+  b.innerHTML=list.map(u=>{const cc=u.command==='Sleep'?'bs-w':u.command==='Query'?'bs-s':'bs-m';const tc=u.time>300?'color:var(--danger)':u.time>60?'color:var(--warning)':'';return `<tr><td class="text-muted">${u.id}</td><td class="fd" style="font-weight:600">${esc(u.user)}</td><td><code style="font-size:11px;color:var(--text-secondary)">${esc(u.host)}</code></td><td>${u.db?`<span class="bs bs-m">${esc(u.db)}</span>`:'<span class="text-muted">—</span>'}</td><td><span class="bs ${cc}">${u.command}</span></td><td class="fd" style="font-weight:600;${tc}">${u.time}s</td><td class="text-muted" style="font-size:11.5px">${esc(u.state)}</td><td class="sqlc" title="${esc(u.info||'')}">${u.info?esc(u.info):'<span class="text-muted">—</span>'}</td></tr>`}).join('');
+}
+
+function renderInnodbStats(st){
+  const el=document.getElementById('innodbStats');
+  if(!st.mysql_connected){el.innerHTML='<div class="empty-state" style="padding:20px"><p>Sin conexión a MySQL</p></div>';return}
+  const rows=[['Buffer Pool Size',st.buffer_pool_size_gb+' GB',''],['Buffer Pool Utilizado',st.buffer_pool_used_gb+' GB ('+st.buffer_pool_used_pct+'%)',st.buffer_pool_used_pct],['Log File Size','4.0 GB',''],['Pages Read',(st.innodb_pages_read||0).toLocaleString(),''],['Pages Created',(st.innodb_pages_created||0).toLocaleString(),''],['Buffer Hit Ratio',st.buffer_pool_hit_ratio+'%','']];
+  el.innerHTML=rows.map(([l,v,p])=>`<div class="mb-2 d-flex justify-content-between"><span class="cl mb-0">${l}</span><span class="fd" style="font-weight:700;${l.includes('Hit')?'color:var(--success)':''}">${v}</span></div>${p?`<div class="pc mb-3"><div class="pb" style="width:${p}%;background:var(--accent)"></div></div>`:'<div style="height:8px"></div>'}`).join('');
+}
+
+function renderConnStats(st){
+  const el=document.getElementById('connStats');
+  if(!st.mysql_connected){el.innerHTML='<div class="empty-state" style="padding:20px"><p>Sin conexión a MySQL</p></div>';return}
+  const mp=st.max_connections?((st.max_used_connections/st.max_connections)*100).toFixed(1):0;
+  const rows=[['Threads_connected',st.threads_connected,''],['Connections (histórico)',(st.connections_total||0).toLocaleString(),''],['Max_used_connections',st.max_used_connections||0,''],['max_connections',st.max_connections||500,''],['Aborted_connects',st.aborted_connects||0,'danger'],['Aborted_clients',st.aborted_clients||0,'warning'],['Threads_running',st.threads_running||0,''],['Threads_cached',st.threads_cached||0,'']];
+  el.innerHTML=rows.map(([l,v,c])=>`<div class="mb-2 d-flex justify-content-between"><span class="cl mb-0">${l}</span><span class="fd" style="font-weight:700;${c?'color:var(--'+c+')':''}">${v}</span></div>`).join('')+`<div class="pc mt-2"><div class="pb" style="width:${mp}%;background:var(--warning)"></div></div><small class="text-muted">Máx usado: ${mp}%</small>`;
+}
+
+function renderAlerts(list){
+  const box=document.getElementById('alertBox'),cnt=document.getElementById('alertCount');
+  if(!list.length){box.innerHTML='<div class="empty-state"><i class="bi bi-bell"></i><p>Sin alertas activas</p></div>';cnt.hidden=true;return}
+  cnt.hidden=false;cnt.textContent=list.length;
+  box.innerHTML='<div class="row g-3">'+list.map(a=>{const cls=a.type==='critical'?'ac-cr':'ac-wa';const bc=a.type==='critical'?'bs-d':'bs-w';const lb=a.type==='critical'?'CRÍTICO':'ADVERTENCIA';return `<div class="col-md-6 col-xl-4"><div class="alert-card ${cls}"><div class="d-flex gap-3"><div class="ai"><i class="bi ${a.icon}"></i></div><div class="flex-grow-1"><div class="d-flex justify-content-between align-items-start mb-1"><span class="fd" style="font-weight:700;font-size:13.5px">${esc(a.title)}</span><span class="bs ${bc}" style="font-size:9px">${lb}</span></div><p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;line-height:1.5">${esc(a.desc)}</p><small class="text-muted"><i class="bi bi-clock me-1"></i>${a.time?new Date(a.time).toLocaleString():'—'}</small></div></div></div></div>`}).join('')+'</div>';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DATOS BAJO DEMANDA (REST)
+   ═══════════════════════════════════════════════════════════════ */
+async function loadDatabases(){
+  try{const r=await fetch('/api/databases');const l=await r.json();const b=document.getElementById('dbBody');if(!l.length){b.innerHTML='<tr><td colspan="5" class="empty-state"><i class="bi bi-database"></i><p>No se encontraron bases de datos</p></td></tr>';return}b.innerHTML=l.map(d=>`<tr class="dbrow" onclick="selectDB('${esc(d.name)}')"><td><i class="bi bi-database-fill me-2" style="color:var(--accent)"></i><span class="fd" style="font-weight:600">${esc(d.name)}</span></td><td><code style="font-size:11px;color:var(--text-muted)">${esc(d.collation)}</code></td><td class="fd" style="font-weight:600">${d.size_human}</td><td>${d.tables}</td><td class="text-muted" style="font-size:11.5px">${d.last_modified||'—'}</td></tr>`).join('')}catch(e){document.getElementById('dbBody').innerHTML='<tr><td colspan="5" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error cargando</p></td></tr>'}
+}
+
+async function selectDB(name){
+  selDB=name;setText('tblL',name);go('tables');
+  try{const r=await fetch(`/api/databases/${encodeURIComponent(name)}/tables`);const l=await r.json();setText('tblC',l.length+' tablas');const b=document.getElementById('tblBody');if(!l.length){b.innerHTML='<tr><td colspan="8" class="empty-state"><i class="bi bi-table"></i><p>No hay tablas</p></td></tr>';return}b.innerHTML=l.map(t=>`<tr><td><i class="bi bi-table me-2" style="color:var(--warning)"></i><span class="fd" style="font-weight:600">${esc(t.name)}</span></td><td><span class="bs ${t.engine==='InnoDB'?'bs-s':'bs-i'}">${esc(t.engine)}</span></td><td>${t.data_human}</td><td>${t.index_human}</td><td class="fd" style="font-weight:600">${t.total_human}</td><td>${(t.rows/1000).toFixed(0)}K</td><td class="text-muted" style="font-size:11.5px">${t.auto_increment?t.auto_increment.toLocaleString():'—'}</td><td class="text-muted" style="font-size:11.5px">${t.update_time||'—'}</td></tr>`).join('')}catch(e){document.getElementById('tblBody').innerHTML='<tr><td colspan="8" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error cargando</p></td></tr>'}
+}
+
+async function loadSlowQueries(){
+  const mt=document.getElementById('slowMinTime').value||2;
+  try{const r=await fetch(`/api/slow-queries?min_time=${mt}&limit=50`);const l=await r.json();const b=document.getElementById('slowBody');const dbs=[...new Set(l.map(q=>q.db).filter(Boolean))];const sel=document.getElementById('slowDb');const cv=sel.value;sel.innerHTML='<option value="">Todas</option>'+dbs.map(d=>`<option value="${d}" ${d===cv?'selected':''}>${d}</option>`).join('');if(!l.length){b.innerHTML='<tr><td colspan="7" class="empty-state"><i class="bi bi-hourglass-split"></i><p>No hay consultas lentas</p></td></tr>';return}b.innerHTML=l.map((q,i)=>{const tc=q.query_time>30?'var(--danger)':q.query_time>10?'var(--warning)':'var(--text-primary)';return `<tr><td class="text-muted">${i+1}</td><td class="sqlc" title="${esc(q.sql_text)}">${esc(q.sql_text)}</td><td><span class="fd" style="font-weight:700;color:${tc}">${q.query_time}s</span></td><td class="text-muted">${formatNum(q.rows_examined)}</td><td class="text-muted">${formatNum(q.rows_sent)}</td><td><span class="bs bs-m">${esc(q.db)}</span></td><td class="text-muted" style="font-size:11.5px">${q.start_time}</td></tr>`}).join('')}catch(e){document.getElementById('slowBody').innerHTML='<tr><td colspan="7" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error</p></td></tr>'}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONFIGURACIÓN
+   ═══════════════════════════════════════════════════════════════ */
+async function showConfigModal(){
+  if(!configModalInstance) configModalInstance=new bootstrap.Modal(document.getElementById('configModal'));
+  try{const r=await fetch('/api/config');const c=await r.json();document.getElementById('cfgHost').value=c.mysql.host;document.getElementById('cfgPort').value=c.mysql.port;document.getElementById('cfgUser').value=c.mysql.user;document.getElementById('cfgPass').value=c.mysql.password;document.getElementById('cfgInterval').value=c.refresh_interval}catch(e){}
+  document.getElementById('cfgError').classList.remove('show');document.getElementById('cfgOk').style.display='none';configModalInstance.show();
+}
+function closeConfigModal(){if(configModalInstance)configModalInstance.hide()}
+
+async function saveConfig(){
+  const errEl=document.getElementById('cfgError'),okEl=document.getElementById('cfgOk'),btn=document.getElementById('cfgSaveBtn'),txt=document.getElementById('cfgSaveText'),spn=document.getElementById('cfgSaveSpinner');
+  errEl.classList.remove('show');okEl.style.display='none';btn.disabled=true;txt.style.display='none';spn.style.display='inline';
+  const payload={mysql:{host:document.getElementById('cfgHost').value.trim()||'localhost',port:parseInt(document.getElementById('cfgPort').value)||3306,user:document.getElementById('cfgUser').value.trim()||'root',password:document.getElementById('cfgPass').value,charset:'utf8mb4'},refresh_interval:parseFloat(document.getElementById('cfgInterval').value)||2.0,alerts:{disk_percent:80,cpu_percent:90,ram_percent:90,connections_percent:80,slow_query_time:2,max_slow_per_hour:50}};
+  try{
+    const sr=await fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!sr.ok)throw new Error('Error guardando');
+    const tr=await fetch('/api/config/test-connection');const td=await tr.json();
+    if(td.connected){okEl.style.display='block';document.getElementById('sbHost').textContent=payload.mysql.host+':'+payload.mysql.port;setTimeout(closeConfigModal,800);resourceChartsLoaded=false}
+    else{errEl.textContent='No se pudo conectar. Verifica host, usuario y contraseña.';errEl.classList.add('show')}
+  }catch(e){errEl.textContent=e.message||'Error';errEl.classList.add('show')}finally{btn.disabled=false;txt.style.display='inline';spn.style.display='none'}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NAVEGACIÓN
+   ═══════════════════════════════════════════════════════════════ */
+function go(p){
+  document.querySelectorAll('.ps').forEach(s=>s.classList.remove('active'));
+  const el=document.getElementById('p-'+p);if(el){el.classList.add('active');el.style.animation='none';el.offsetHeight;el.style.animation=''}
+  document.querySelectorAll('.nli').forEach(l=>l.classList.remove('active'));
+  const lk=document.querySelector(`.nli[data-p="${p}"]`);if(lk)lk.classList.add('active');
+  setText('ptitle',titles[p]||p);
+  document.getElementById('sb').classList.remove('open');document.getElementById('sov').classList.remove('show');
+  curPage=p;
+
+  if(p==='dashboard'){initDashCharts();initDBSizeDonut()}
+  if(p==='databases') loadDatabases();
+  if(p==='slow') loadSlowQueries();
+  if(p==='resources'){initResourceCharts();loadResourceCharts()}
+  if(p==='binlog'){
+    initBlCharts();
+    pollBinlogStatus();
+    loadBinlogStats();
+    if(!blEvents.length) loadBinlogHistory();
+  }
+  document.getElementById('mc').scrollTop=0;
+}
+
+document.querySelectorAll('.nli').forEach(l=>l.addEventListener('click',()=>go(l.dataset.p)));
+document.getElementById('bhbtn').addEventListener('click',()=>{document.getElementById('sb').classList.toggle('open');document.getElementById('sov').classList.toggle('show')});
+document.getElementById('sov').addEventListener('click',()=>{document.getElementById('sb').classList.remove('open');document.getElementById('sov').classList.remove('show')});
+
+/* ═══════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded',()=>{
+  connectWS();
+  connectBinlogWS();
+  initDashCharts();
+  initDBSizeDonut();
+
+  fetch('/api/metrics/snapshot').then(r=>r.json()).then(d=>processSnapshot(d)).catch(()=>{});
+
+  blStatusInterval=setInterval(async()=>{
+    try{
+      const r=await fetch('/api/binlog/status');
+      const s=await r.json();
+      binlog_service_stats=s;
+      setText('blTotal',(s.total_events||0).toLocaleString());
+      setText('blEPS',s.events_per_second||'0');
+      setText('blIns',(s.insert_count||0).toLocaleString());
+      setText('blUpd',(s.update_count||0).toLocaleString());
+      setText('blDel',(s.delete_count||0).toLocaleString());
+
+      const dot=document.getElementById('blStatusDot'),txt=document.getElementById('blStatusText'),pos=document.getElementById('blPosText'),errEl=document.getElementById('blErrorText'),navDot=document.getElementById('blNavDot');
+      if(s.streamer_running){dot.className='bl-pulse live';txt.textContent='Leyendo binlog';txt.style.color='var(--success)';navDot.className='bl-pulse live ms-auto'}
+      else if(s.error){dot.className='bl-pulse dead';txt.textContent='Error';txt.style.color='var(--danger)';navDot.className='bl-pulse dead ms-auto';errEl.style.display='block';errEl.textContent=s.error}
+      else{dot.className='bl-pulse wait';txt.textContent='Reconectando...';txt.style.color='var(--warning)';navDot.className='bl-pulse wait ms-auto'}
+      if(s.current_log_file) pos.textContent=s.current_log_file+':'+s.current_log_pos;
+      errEl.style.display=s.error?'block':'none';
+
+      if(curPage==='binlog'){
+        renderBlTopTables(s.tables_hot||[]);
+        updateBlTypeChart(s.insert_count||0,s.update_count||0,s.delete_count||0);
+      }
+    }catch(e){}
+  },2000);
+
+  setInterval(()=>{
+    if(curPage==='binlog') loadBinlogStats();
+  },30000);
+});
+</script>
+
+
+
+
+</body>
+</html>

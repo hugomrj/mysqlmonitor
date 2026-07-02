@@ -1,8 +1,8 @@
+# /routers/config.py
 from fastapi import APIRouter, HTTPException
 from database import load_config, save_config
 from mysql_pool import create_pool
 from config import AppSettings
-from services.metrics_loop import stop, start
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -15,15 +15,9 @@ async def get_config():
 
 @router.put("", response_model=AppSettings)
 async def update_config(new_config: AppSettings):
-    """Actualiza la configuración en caliente.
-    - Se guarda en SQLite inmediatamente
-    - El pool de MySQL se recrea si cambió la conexión
-    - El intervalo se aplica en el siguiente ciclo del loop"""
+    """Actualiza la configuración en caliente."""
     await save_config(new_config)
-
-    # Reconectar MySQL si cambió la config de conexión
     await create_pool(new_config.mysql)
-
     return new_config
 
 

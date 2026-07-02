@@ -1,3 +1,4 @@
+# config.py
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -31,3 +32,4 @@ class AppSettings(BaseModel):
     mysql: MySQLConnectionConfig = Field(default_factory=MySQLConnectionConfig)
     refresh_interval: float = Field(default=2.0, ge=0.5, le=60.0)
     alerts: AlertThresholds = Field(default_factory=AlertThresholds)
+    binlog_enabled: bool = True
