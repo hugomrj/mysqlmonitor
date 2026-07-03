@@ -103,7 +103,7 @@ async def get_cached_queries(
 
     return {
         "total": total,
-        "data": [
+        "data": [   
             {
                 "id": r[0], "event_time": r[1], "user_host": r[2],
                 "user": r[3], "command_type": r[4],

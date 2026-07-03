@@ -182,10 +182,15 @@ class BinlogStreamService:
         await asyncio.sleep(0.5)
         await self.start(mysql_config)
 
+
+
+
+
+
+
     # ── Thread: lector síncrono del binlog ────────────────────────
 
     def _run_streamer(self, mysql_config: dict):
-        # ← MODIFICADO: Agregado TableMapEvt
         BinLogStreamReader, WriteEvt, UpdateEvt, DeleteEvt, TableMapEvt = _get_replication_module()
         if BinLogStreamReader is None:
             with self._lock:
@@ -196,23 +201,29 @@ class BinlogStreamService:
 
         while self._running:
             try:
+                # ── RECARGAR CONFIG DE MEMORIA EN CADA CICLO ──
+                try:
+                    from config_state import get_mysql_config_dict
+                    mysql_config = get_mysql_config_dict()
+                    logger.debug(f"Config recargada: host={mysql_config.get('host')}")
+                except Exception as e:
+                    logger.warning(f"No se pudo recargar config, usando original: {e}")
+
                 with self._lock:
                     self._stats["streamer_running"] = True
                     self._stats["error"] = None
 
-                # ID aleatorio para evitar conflictos al reiniciar
                 stream = BinLogStreamReader(
                     connection_settings={
                         "host": mysql_config.get("host", "localhost"),
                         "port": int(mysql_config.get("port", 3306)),
                         "user": mysql_config.get("user", "root"),
-                        "passwd": mysql_config.get("password", ""),
+                        "passwd": mysql_config.get("passwd") or mysql_config.get("password", ""),
                         "connect_timeout": 10,
                         "read_timeout": 30,
                     },
                     server_id=random.randint(100000, 999999),
                     blocking=True,
-                    # ← MODIFICADO: Agregado TableMapEvt para resolver nombres de columnas
                     only_events=[TableMapEvt, WriteEvt, UpdateEvt, DeleteEvt],
                     resume_stream=True,
                     log_file=saved_pos.get("log_file") if saved_pos else None,
@@ -234,7 +245,7 @@ class BinlogStreamService:
                             try:
                                 self._queue.put_nowait(event_data)
                             except queue.Full:
-                                logger.warning("Queue llena, descartando evento")                        
+                                logger.warning("Queue llena, descartando evento")
                             with self._lock:
                                 self._stats["current_log_file"] = getattr(binlog_event, 'log_file', None) or getattr(binlog_event.packet, 'log_file', 'unknown')
                                 self._stats["current_log_pos"] = getattr(binlog_event, 'log_pos', None) or getattr(binlog_event.packet, 'log_pos', 0)
@@ -252,6 +263,9 @@ class BinlogStreamService:
                     if not self._running:
                         return
                     time.sleep(1)
+
+
+
 
     # ── Extracción segura de datos del evento ─────────────────────
 

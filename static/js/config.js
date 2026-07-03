@@ -44,6 +44,9 @@ function closeConfigModal() {
     }
 }
 
+
+
+
 async function saveConfig() {
     const errEl = document.getElementById('cfgError');
     const okEl = document.getElementById('cfgOk');
@@ -81,7 +84,13 @@ async function saveConfig() {
         spnEl.style.display = 'none';
         txtEl.style.display = '';
 
-        // Cerrar después de 1.5s
+        // Reiniciar el binlog con la nueva config
+        try {
+            await fetch('/api/binlog/restart', { method: 'POST' });
+        } catch (e) {
+            // Si falla no es crítico, el resto funciona
+        }
+
         setTimeout(() => {
             closeConfigModal();
             location.reload();
@@ -94,3 +103,5 @@ async function saveConfig() {
         txtEl.style.display = '';
     }
 }
+
+

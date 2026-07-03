@@ -5,6 +5,7 @@ import { initDashboard, updateDashboard } from './pages/dashboard.js';
 import { loadResourceCharts } from './pages/resources.js';
 import { loadSlowQueries, clearSlowHistory } from './pages/slow.js';
 import { loadQueries } from './pages/queries.js';
+import { loadAudit } from './pages/audit.js';
 import { initBinlog, pollBinlogStatus, loadBinlogHistory, loadBinlogStats } from './pages/binlog.js';
 
 // ═══ EXPONER AL GLOBAL para onclick del HTML ═══
@@ -16,6 +17,8 @@ window.setBar = setBar;
 window.esc = esc;
 window.formatNum = formatNum;
 window.showToast = showToast;
+window.loadAudit = loadAudit;
+
 window.restartBinlog = async () => {
     try { await fetch('/api/binlog/restart', {method:'POST'}); showToast('Streamer reiniciado'); } catch(e){}
 };
@@ -32,8 +35,10 @@ let curPage = 'dashboard';
 const titles = {
     dashboard:'Dashboard', slow:'Consultas Lentas', queries:'Consultas',
     databases:'Bases de Datos', tables:'Tablas', users:'Usuarios Conectados',
-    resources:'Recursos del Servidor', alerts:'Alertas', binlog:'Binlog Live'
+    resources:'Recursos del Servidor', alerts:'Alertas', binlog:'Binlog Live',
+    audit:'Auditoría'
 };
+
 
 window.go = function(p) {
     document.querySelectorAll('.ps').forEach(s=>s.classList.remove('active'));
@@ -50,6 +55,7 @@ window.go = function(p) {
     if(p==='resources') loadResourceCharts();
     if(p==='slow') loadSlowQueries();
     if(p==='queries') loadQueries();
+        if(p==='audit') loadAudit();    
     if(p==='binlog'){ pollBinlogStatus(); loadBinlogStats(); if(!window.blEvents.length) loadBinlogHistory(); }
     document.getElementById('mc').scrollTop=0;
 };

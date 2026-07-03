@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 
 from config import AppSettings
-from routers import config as cfg_router, metrics, databases, slow, processlist, alerts, binlog, queries
+from routers import config as cfg_router, metrics, databases, slow, processlist, alerts, binlog, queries, audit
 from services.websocket import connected_clients as metrics_clients
 from services.binlog_stream import binlog_service
 from database import init_db, load_config, init_binlog_tables
@@ -148,6 +148,7 @@ app.include_router(processlist.router)
 app.include_router(alerts.router)
 app.include_router(binlog.router)
 app.include_router(queries.router)
+app.include_router(audit.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
