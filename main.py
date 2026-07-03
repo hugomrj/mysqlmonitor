@@ -121,13 +121,17 @@ async def lifespan(app: FastAPI):
     from services.metrics_loop import start as start_metrics_loop
     asyncio.create_task(start_metrics_loop())
 
-    if cfg.binlog_enabled:
+    if cfg.binlog_enabled and cfg.mysql.password:
         mysql_dict = cfg.mysql.model_dump()
         await binlog_service.start(mysql_dict)
         if not binlog_service.is_running:
-            logger.info("ℹ Binlog deshabilitado - el resto del monitor funciona normal")
+            logger.info("ℹ Binlog no pudo iniciar - configura contraseña en la UI")
     else:
-        logger.info("Binlog deshabilitado por configuración")
+        logger.info("Binlog pendiente - configura conexión en la UI")
+
+        if not binlog_service.is_running:
+            logger.info("ℹ Binlog deshabilitado - el resto del monitor funciona normal")
+   
 
     logger.info("MySQL Monitor listo")
     yield
