@@ -107,6 +107,10 @@ class WSBypass:
 
 
 
+
+
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Iniciando MySQL Monitor...")
