@@ -1,4 +1,4 @@
-import { esc, formatNum } from '../helpers.js';
+import { setText, esc, formatNum } from '../helpers.js';
 
 let _total = 0;
 let _page = 0;
@@ -52,7 +52,7 @@ async function fetchAndRender() {
         _total = res.total || 0;
         renderTable(res.data || []);
     } catch (e) {
-        body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error: ${e.message}</p></td></tr>`;
+        body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
     }
 }
 
@@ -74,13 +74,12 @@ function renderTable(rows) {
         const ts = fmtTS(ev.event_time);
         const tbl = ev.schema ? `${esc(ev.schema)}.${esc(ev.table || '—')}` : esc(ev.table || '—');
 
-        // Preview de datos
         let preview = '<span class="text-muted" style="font-size:11px">—</span>';
         if (ev.row_data) {
             try {
-                const rows = typeof ev.row_data === 'string' ? JSON.parse(ev.row_data) : ev.row_data;
-                if (rows && rows.length > 0) {
-                    const obj = rows[0].after || rows[0].values || rows[0];
+                const rws = typeof ev.row_data === 'string' ? JSON.parse(ev.row_data) : ev.row_data;
+                if (rws && rws.length > 0) {
+                    const obj = rws[0].after || rws[0].values || rws[0];
                     if (obj && typeof obj === 'object') {
                         const parts = Object.entries(obj).slice(0, 3).map(([k, v]) =>
                             `<span style="color:var(--text-muted)">${esc(k)}:</span> <span style="color:var(--accent)">${esc(String(v).substring(0, 20))}</span>`
@@ -175,9 +174,6 @@ window.clearAuditFilters = function () {
 /* ── Detalle en modal ── */
 window.showAuditDetail = async function (id) {
     try {
-        const r = await fetch(`/api/audit?limit=1&offset=0`);
-        const res = await r.json();
-        // Buscar el evento por id en los datos (necesitamos fetch con el id)
         const r2 = await fetch(`/api/audit?limit=500`);
         const res2 = await r2.json();
         const ev = res2.data.find(d => d.id === id);
@@ -202,7 +198,7 @@ window.showAuditDetail = async function (id) {
 
         const copyBtn = document.getElementById('copyBtn');
         copyBtn.onclick = () => {
-            navigator.clipboard.writeText(ev.row_data || '');
+            navigator.clipboard.writeText(typeof ev.row_data === 'string' ? ev.row_data : JSON.stringify(ev.row_data, null, 2));
             copyBtn.innerHTML = '<i class="bi bi-check me-1"></i>Copiado';
             setTimeout(() => { copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar JSON'; }, 2000);
         };
@@ -217,28 +213,20 @@ function formatRowData(raw) {
     if (!raw) return '—';
     try {
         const rows = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (!Array.isArray(rows) || !rows.length) return raw;
+        if (!Array.isArray(rows) || !rows.length) return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
         return rows.map((r, i) => {
             const obj = r.after || r.values || r;
             if (typeof obj !== 'object' || obj === null) return `Row ${i + 1}: ${JSON.stringify(r, null, 2)}`;
-            const label = opLabel(r);
             const entries = Object.entries(obj).map(([k, v]) => {
                 const val = v === null ? 'NULL' : String(v);
                 const display = val.length > 120 ? val.substring(0, 120) + '…' : val;
-                const color = v === null ? 'var(--text-muted)' : 'var(--accent)';
-                return `  ${label}${esc(k)}: ${color === 'var(--text-muted)' ? '<span style="color:var(--text-muted)">NULL</span>' : `<span style="color:${color}">${esc(display)}</span>`}`;
+                return v === null ? `  ${esc(k)}: <span style="color:var(--text-muted)">NULL</span>` : `  ${esc(k)}: <span style="color:var(--accent)">${esc(display)}</span>`;
             }).join('\n');
-            return `── Row ${i + 1} ${label}──\n${entries}`;
+            return `── Row ${i + 1} ──\n${entries}`;
         }).join('\n\n');
     } catch (e) {
         return raw;
     }
-}
-
-function opLabel(row) {
-    if (row.before && row.after) return '[CHANGE] ';
-    if (row.after || row.values) return '';
-    return '';
 }
 
 function fmtTS(ts) {

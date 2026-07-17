@@ -1,32 +1,18 @@
-/* ─────────────────────────────────────────────
-   slow.js — Consultas Lentas (persistidas)
-   ───────────────────────────────────────────── */
-
 import { esc, formatNum } from '../helpers.js';
 
-let _total = 0;
-let _page = 0;
-const _limit = 50;
+let _lastSlowRows = [];
 
-/* ══════════════════════════════════════
-   ENTRY POINT
-   ══════════════════════════════════════ */
 export async function loadSlowQueries() {
-    loadDBDropdown();
+    loadDropdowns();
     await fetchAndRender();
 }
 
-/* ══════════════════════════════════════
-   FETCH + RENDER
-   ══════════════════════════════════════ */
 async function fetchAndRender() {
     const body = document.getElementById('slowBody');
-    body.innerHTML = `<tr><td colspan="7" class="empty-state"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Cargando...</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="empty-state"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Cargando...</td></tr>`;
 
     const params = new URLSearchParams();
-    params.set('limit', _limit);
-    params.set('offset', _page * _limit);
-
+    
     const minTime = document.getElementById('slowMinTime').value;
     if (minTime) params.set('min_time', minTime);
 
@@ -39,205 +25,148 @@ async function fetchAndRender() {
     try {
         const r = await fetch('/api/slow-queries?' + params);
         const res = await r.json();
-        _total = res.total || 0;
         renderTable(res.data || []);
     } catch (e) {
-        body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar: ${e.message}</p></td></tr>`;
+        body.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
     }
 }
 
-/* ══════════════════════════════════════
-   RENDER TABLA
-   ══════════════════════════════════════ */
 function renderTable(rows) {
+    _lastSlowRows = rows;
     const body = document.getElementById('slowBody');
 
     if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-hourglass-split"></i><p>No hay consultas lentas${_total === 0 ? ' registradas' : ' con estos filtros'}</p></td></tr>`;
+        body.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Sin consultas lentas registradas</p></td></tr>`;
         return;
     }
 
     body.innerHTML = rows.map((q, i) => {
-        const idx = _page * _limit + i + 1;
-        const sql = truncateSQL(q.sql_text);
-        const timeClr = timeColor(q.query_time);
-        const time = q.query_time.toFixed(2) + 's';
-        const ts = formatTS(q.start_time);
+        const idx = i + 1;
+        const { user, host } = parseUserHost(q.user_host);
+        
+        // Formatear tiempo (viene en segundos, ej: 12.000375)
+        const ms = (q.query_time * 1000).toFixed(0);
+        const timeClr = q.query_time >= 10 ? 'var(--danger)' : q.query_time >= 5 ? 'var(--warning)' : 'var(--text-primary)';
 
-        return `<tr style="cursor:pointer" onclick="window.showSlowDetail(${q.id})">
+        const ts = fmtTS(q.start_time);
+
+        return `<tr>
             <td class="text-secondary" style="font-size:12px;white-space:nowrap">${idx}</td>
-            <td><code class="sql-snippet">${esc(sql)}</code></td>
-            <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace">${time}</span></td>
-            <td style="font-family:'Space Grotesk',monospace;font-size:13px">${formatNum(q.rows_examined)}</td>
-            <td style="font-family:'Space Grotesk',monospace;font-size:13px">${formatNum(q.rows_sent)}</td>
+            <td><code class="sql-snippet">${esc(truncateSQL(q.sql_text))}</code></td>
+            <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${ms} ms</span></td>
+            <td style="font-size:12.5px">${esc(user)}</td>
+            <td class="fd" style="font-weight:600">${formatNum(q.rows_examined || 0)}</td>
+            <td class="text-secondary">${formatNum(q.rows_sent || 0)}</td>
             <td><span class="bs bs-i">${esc(q.db || '—')}</span></td>
             <td class="text-secondary" style="font-size:12px;white-space:nowrap">${ts}</td>
+            <td><button class="bsa" onclick="window.showSlowDetail(${i})"><i class="bi bi-eye"></i></button></td>
         </tr>`;
     }).join('');
-
-    renderPagination();
 }
 
-/* ══════════════════════════════════════
-   PAGINACIÓN
-   ══════════════════════════════════════ */
-function renderPagination() {
-    // Quitar paginación anterior si existe
-    const old = document.getElementById('slowPagination');
-    if (old) old.remove();
+/* ── DETAIL MODAL ── */
+window.showSlowDetail = function (index) {
+    const q = _lastSlowRows[index];
+    if (!q) return;
 
-    const totalPages = Math.ceil(_total / _limit);
-    if (totalPages <= 1) return;
+    const idx = index + 1;
+    const { user, host } = parseUserHost(q.user_host);
+    const ms = (q.query_time * 1000).toFixed(0);
+    const lockMs = q.lock_time ? (q.lock_time * 1000).toFixed(2) : '—';
+    
+    const timeClr = q.query_time >= 10 ? 'var(--danger)' : q.query_time >= 5 ? 'var(--warning)' : 'var(--text-primary)';
 
-    const table = document.getElementById('tSlow');
-    const wrapper = document.createElement('div');
-    wrapper.id = 'slowPagination';
-    wrapper.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid rgba(255,255,255,.06)';
+    document.getElementById('mTitle').innerHTML = `<i class="bi bi-hourglass-split me-2" style="color:var(--warning)"></i>Consulta Lenta #${idx}`;
+    document.getElementById('mBody').innerHTML = `
+        <div class="row g-3 mb-3">
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Usuario</small><span class="fd" style="font-weight:700;font-size:18px">${esc(user)}</span></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Tiempo Total</small><span style="font-size:20px;font-weight:800;color:${timeClr};font-family:'Space Grotesk',monospace">${ms} ms</span></div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Base de Datos</small><code style="font-size:15px;color:var(--accent)">${esc(q.db || '—')}</code></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Host / IP</small><code style="font-size:13px">${esc(host)}</code></div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-4"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Fecha y Hora</small><span style="font-size:13px">${q.start_time}</span></div>
+            <div class="col-4"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Lock Time</small><span style="font-size:13px">${lockMs} ms</span></div>
+            <div class="col-4"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Estado</small><span class="bs bs-w" style="font-size:12px;padding:5px 12px">Lenta</span></div>
+        </div>
+        <div>
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Análisis de Rendimiento</label>
+            <div class="codeb" style="font-size:12px;color:var(--text-secondary)">Rows Examined: ${formatNum(q.rows_examined || 0)}
+Rows Sent: ${formatNum(q.rows_sent || 0)}</div>
+        </div>
+        <div style="margin-top:14px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">SQL Query</label>
+            <pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:14px;font-size:12.5px;color:#e2e8f0;max-height:350px;overflow:auto;margin:0;white-space:pre-wrap;word-break:break-all;font-family:'Fira Code',monospace;line-height:1.6">${esc(q.sql_text)}</pre>
+        </div>`;
 
-    const info = document.createElement('span');
-    info.style.cssText = 'font-size:12px;color:var(--text-muted)';
-    info.textContent = `${_total} consultas · Página ${_page + 1} de ${totalPages}`;
+    const copyBtn = document.getElementById('copyBtn');
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(q.sql_text);
+        copyBtn.innerHTML = '<i class="bi bi-check me-1"></i>Copiado';
+        setTimeout(() => { copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar SQL'; }, 2000);
+    };
 
-    const btns = document.createElement('div');
-    btns.style.cssText = 'display:flex;gap:6px';
-
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'boc btn-sm';
-    prevBtn.innerHTML = '<i class="bi bi-chevron-left"></i>';
-    prevBtn.disabled = _page === 0;
-    prevBtn.onclick = () => { _page--; fetchAndRender(); };
-
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'boc btn-sm';
-    nextBtn.innerHTML = '<i class="bi bi-chevron-right"></i>';
-    nextBtn.disabled = _page >= totalPages - 1;
-    nextBtn.onclick = () => { _page++; fetchAndRender(); };
-
-    btns.append(prevBtn, nextBtn);
-    wrapper.append(info, btns);
-    table.parentElement.appendChild(wrapper);
-}
-
-/* ══════════════════════════════════════
-   DETALLE (modal)
-   ══════════════════════════════════════ */
-window.showSlowDetail = async function (id) {
-    // Buscar en la data actual primero para evitar fetch extra
-    const rows = document.querySelectorAll('#slowBody tr[data-id]');
-    // Simpler: fetch individual
-    try {
-        const r = await fetch('/api/slow-queries?limit=500');
-        const res = await r.json();
-        const q = res.data.find(d => d.id === id);
-        if (!q) return;
-
-        const title = document.getElementById('mTitle');
-        const body = document.getElementById('mBody');
-        const copyBtn = document.getElementById('copyBtn');
-
-        title.innerHTML = '<i class="bi bi-hourglass-split me-2" style="color:var(--warning)"></i>Consulta Lenta';
-
-        const timeClr = timeColor(q.query_time);
-        body.innerHTML = `
-            <div class="rs-grid mb-3">
-                <span class="rs-cell">Tiempo</span>
-                <span class="rs-val" style="color:${timeClr};font-weight:700">${q.query_time.toFixed(2)}s</span>
-                <span class="rs-cell">Lock Time</span>
-                <span class="rs-val">${q.lock_time || '—'}</span>
-                <span class="rs-cell">Rows Examined</span>
-                <span class="rs-val">${formatNum(q.rows_examined)}</span>
-                <span class="rs-cell">Rows Sent</span>
-                <span class="rs-val">${formatNum(q.rows_sent)}</span>
-                <span class="rs-cell">Base de Datos</span>
-                <span class="rs-val">${esc(q.db || '—')}</span>
-                <span class="rs-cell">Usuario</span>
-                <span class="rs-val">${esc(q.user_host || '—')}</span>
-                <span class="rs-cell">Timestamp</span>
-                <span class="rs-val">${q.start_time}</span>
-            </div>
-            <div style="margin-top:12px">
-                <label style="font-size:12px;color:var(--text-muted);margin-bottom:6px;display:block">SQL Query</label>
-                <pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:14px;font-size:12.5px;color:#e2e8f0;max-height:400px;overflow:auto;margin:0;white-space:pre-wrap;word-break:break-all;font-family:'Fira Code',monospace;line-height:1.6">${esc(q.sql_text)}</pre>
-            </div>`;
-
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(q.sql_text);
-            copyBtn.innerHTML = '<i class="bi bi-check me-1"></i>Copiado';
-            setTimeout(() => {
-                copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar SQL';
-            }, 2000);
-        };
-
-        new bootstrap.Modal(document.getElementById('detailModal')).show();
-    } catch (e) {
-        console.error('Error mostrando detalle:', e);
-    }
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
 };
 
-/* ══════════════════════════════════════
-   DROPDOWN DE BASES DE DATOS
-   ══════════════════════════════════════ */
-async function loadDBDropdown() {
-    const select = document.getElementById('slowDb');
-    if (!select) return;
-    const current = select.value;
-
+/* ── DROPDOWNS ── */
+async function loadDropdowns() {
     try {
-        const r = await fetch('/api/slow-queries/databases');
-        const dbs = await r.json();
-        select.innerHTML = '<option value="">Todas</option>' +
-            dbs.map(d => `<option value="${esc(d)}"${d === current ? ' selected' : ''}>${esc(d)}</option>`).join('');
+        const [dRes, uRes] = await Promise.all([
+            fetch('/api/slow-queries/databases'),
+            fetch('/api/slow-queries/users')
+        ]);
+
+        const dbs = await dRes.json();
+        const users = await uRes.json();
+        
+        const dSel = document.getElementById('slowDb');
+        const cd = dSel.value;
+        dSel.innerHTML = '<option value="">Todas</option>' + dbs.map(d => `<option value="${esc(d)}"${d === cd ? ' selected' : ''}>${esc(d)}</option>`).join('');
+    } catch (e) {}
+}
+
+/* ── CLEAR HISTORY (Faltaba) ── */
+export async function clearSlowHistory() {
+    if (!confirm('¿Limpiar todo el historial de consultas lentas?')) return;
+    try {
+        const r = await fetch('/api/slow-queries', { method: 'DELETE' });
+        if (r.ok) {
+            document.getElementById('slowBody').innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Historial limpiado</p></td></tr>`;
+            const { showToast } = await import('../helpers.js');
+            showToast('Historial de consultas lentas limpiado');
+        }
     } catch (e) {
-        // Silencioso, el dropdown se queda con lo que tenga
+        console.error(e);
     }
 }
 
-/* ══════════════════════════════════════
-   LIMPIAR HISTORIAL
-   ══════════════════════════════════════ */
-export async function clearSlowHistory() {    
-    if (!confirm('¿Borrar todo el historial de consultas lentas?')) return;
-    try {
-        await fetch('/api/slow-queries', { method: 'DELETE' });
-        _page = 0;
-        _total = 0;
-        loadDBDropdown();
-        fetchAndRender();
-    } catch (e) {
-        console.error('Error limpiando:', e);
-    }
-};
-
-/* ══════════════════════════════════════
-   UTILIDADES
-   ══════════════════════════════════════ */
+/* ── HELPERS ── */
+function parseUserHost(uh) {
+    if (!uh) return { user: '—', host: '—' };
+    const um = uh.match(/^(\w+)/);
+    const im = uh.match(/\[([^\]]+)\]/);
+    const hm = uh.match(/@([^\[]+)/);
+    return {
+        user: um ? um[1] : '—',
+        host: im ? im[1] : (hm ? hm[1].trim() : '—')
+    };
+}
 
 function truncateSQL(sql) {
     if (!sql) return '—';
-    const clean = sql.replace(/\s+/g, ' ').trim();
-    if (clean.length <= 100) return clean;
-    return clean.substring(0, 100) + '...';
+    const c = sql.replace(/\s+/g, ' ').trim();
+    return c.length <= 90 ? c : c.substring(0, 90) + '...';
 }
 
-function timeColor(seconds) {
-    if (seconds >= 10) return 'var(--danger)';
-    if (seconds >= 5)  return 'var(--warning)';
-    if (seconds >= 2)  return '#facc15';
-    return 'var(--text-primary)';
-}
-
-function formatTS(ts) {
+function fmtTS(ts) {
     if (!ts) return '—';
     try {
-        const d = new Date(ts);
+        const cleanTs = ts.substring(0, 19);
+        const d = new Date(cleanTs + 'Z');
         if (isNaN(d.getTime())) return ts;
-        return d.toLocaleString('es-ES', {
-            day: '2-digit', month: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
-    } catch {
-        return ts;
-    }
+        return d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return ts; }
 }
-
-window.clearSlowHistory = clearSlowHistory;

@@ -10,7 +10,18 @@ from fastapi.responses import FileResponse
 
 
 from config import AppSettings
-from routers import config as cfg_router, metrics, databases, slow, processlist, alerts, binlog, queries, audit
+
+# Imports absolutos (directos a cada archivo)
+from routers.config import router as cfg_router
+from routers.metrics import router as metrics_router
+from routers.databases import router as databases_router
+from routers.slow import router as slow_router
+from routers.processlist import router as processlist_router
+from routers.alerts import router as alerts_router
+from routers.binlog import router as binlog_router
+from routers.queries import router as queries_router
+from routers.audit import router as audit_router
+
 from services.websocket import connected_clients as metrics_clients
 from services.binlog_stream import binlog_service
 from database import init_db, load_config, init_binlog_tables
@@ -144,19 +155,18 @@ async def lifespan(app: FastAPI):
     await binlog_service.stop()
     await close_pool()
 
-
 app = FastAPI(title="MySQL Monitor", lifespan=lifespan)
 app.add_middleware(WSBypass)
 
-app.include_router(cfg_router.router)
-app.include_router(metrics.router)
-app.include_router(databases.router)
-app.include_router(slow.router)
-app.include_router(processlist.router)
-app.include_router(alerts.router)
-app.include_router(binlog.router)
-app.include_router(queries.router)
-app.include_router(audit.router)
+app.include_router(cfg_router)
+app.include_router(metrics_router)
+app.include_router(databases_router)
+app.include_router(slow_router)
+app.include_router(processlist_router)
+app.include_router(alerts_router)
+app.include_router(binlog_router)
+app.include_router(queries_router)
+app.include_router(audit_router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

@@ -14,22 +14,74 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## ⚠️ Configuración del Binlog Live (Opcional)
+### Activar Binlog
 
-La aplicación funciona completamente sin esta configuración. Si deseas habilitar la pestaña **Binlog Live** para visualizar eventos `INSERT`, `UPDATE` y `DELETE` en tiempo real, agrega las siguientes líneas al archivo de configuración de MySQL (`/etc/mysql/my.cnf`) dentro de la sección `[mysqld]`:
+La aplicación funciona completamente sin esta configuración.
 
-```ini
-[mysqld]
-log_bin
-binlog_format = ROW
-server_id = 1
+Si deseas habilitar la pestaña **Binlog Live** para visualizar eventos
+`INSERT`, `UPDATE` y `DELETE` en tiempo real, activa el Binary Log de MySQL.
+
+En Linux (Debian/Ubuntu), edita:
+
+```
+/etc/mysql/mysql.conf.d/mysqld.cnf
 ```
 
-Reinicia el servicio:
+También puede encontrarse en:
 
-```bash
+```
+/etc/mysql/my.cnf
+/etc/my.cnf
+```
+
+Dentro de la sección `[mysqld]`, agrega:
+
+```
+[mysqld]
+server-id = 1
+log_bin = mysql-bin
+binlog_format = ROW
+binlog_row_image = FULL
+
+slow_query_log = 1
+slow_query_log_file = /var/lib/mysql/mysql-slow.log
+long_query_time = 10
+```
+
+El `Slow Query Log` registrará las consultas que tarden **10 segundos o más**.
+
+Reinicia el servicio de MySQL:
+
+```
 sudo systemctl restart mysql
 ```
+
+Después reinicia la aplicación.
+
+Para comprobar que el Binlog está activo:
+
+```
+mysql -u root -p -e "SHOW VARIABLES LIKE 'log_bin';"
+```
+
+El resultado esperado es:
+
+```
+log_bin | ON
+```
+
+Para comprobar que el Slow Query Log está activo:
+
+```
+mysql -u root -p -e "SHOW VARIABLES LIKE 'slow_query_log';"
+```
+
+El resultado esperado es:
+
+```
+slow_query_log | ON
+```
+
 
 ### Privilegios requeridos
 

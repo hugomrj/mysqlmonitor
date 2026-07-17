@@ -1,3 +1,4 @@
+#routers/queries.py
 from fastapi import APIRouter, Query
 from services.queries_cache import (
     get_cached_queries,
@@ -17,13 +18,15 @@ async def get_queries(
     min_time: float = Query(default=None),
     max_time: float = Query(default=None),
     search: str = Query(default=None),
+    sql_type: str = Query(default="SELECT"), # <--- NUEVO: Por defecto solo SELECT
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
     return await get_cached_queries(
         user=user, db_name=db, date_from=date_from,
         min_time=min_time, max_time=max_time,
-        search=search, limit=limit, offset=offset,
+        search=search, sql_type=sql_type, # <--- NUEVO
+        limit=limit, offset=offset,
     )
 
 

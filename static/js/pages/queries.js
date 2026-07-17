@@ -3,13 +3,12 @@ import { esc, formatNum } from '../helpers.js';
 let _total = 0;
 let _page = 0;
 const _limit = 15;
+let _lastRenderedRows = []; // <--- NUEVO: Guarda las filas actuales para el modal
 
 export async function loadQueries() {
     loadDropdowns();
     await fetchAndRender();
 }
-
-
 
 async function fetchAndRender() {
     const body = document.getElementById('queriesBody');
@@ -25,8 +24,8 @@ async function fetchAndRender() {
     const db = document.getElementById('qDb').value;
     if (db) params.set('db', db);
 
-    const date = document.getElementById('qDate').value;
-    if (date) params.set('date_from', date);
+    const type = document.getElementById('qType').value;
+    if (type) params.set('sql_type', type);
 
     const search = document.getElementById('qSearch').value.trim();
     if (search) params.set('search', search);
@@ -41,10 +40,8 @@ async function fetchAndRender() {
     }
 }
 
-
-
-
 function renderTable(rows) {
+    _lastRenderedRows = rows; // <--- NUEVO: Guardamos las filas
     const body = document.getElementById('queriesBody');
 
     if (!rows.length) {
@@ -62,19 +59,20 @@ function renderTable(rows) {
         const ms = q.query_time > 0 ? (q.query_time * 1000).toFixed(0) + ' ms' : '—';
         const timeClr = q.query_time > 0 ? timeColor(q.query_time) : 'var(--text-muted)';
 
-
         const opCls = op === 'SELECT' ? 'bs-i' : op === 'INSERT' ? 'bs-s' : op === 'UPDATE' ? 'bs-w' : op === 'DELETE' ? 'bs-d' : 'bs-m';
-        const ts = fmtTS(q.start_time);
+        
+        // Usa event_time (Ejec: X veces) o start_time si existiera
+        const ts = q.event_time && q.event_time !== 'Ejec: 0 veces' ? q.event_time : fmtTS(q.start_time);
 
         return `<tr>
             <td class="text-secondary" style="font-size:12px;white-space:nowrap">${idx}</td>
             <td><code class="sql-snippet">${esc(truncateSQL(q.sql_text))}</code></td>
-            <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${ms} ms</span></td>
+            <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${ms}</span></td>
             <td style="font-size:12.5px">${esc(user)}</td>
             <td><span class="bs bs-i">${esc(q.db || '—')}</span></td>
             <td class="text-secondary" style="font-size:12px;white-space:nowrap">${ts}</td>
             <td><span class="bs ${opCls}">${op}</span></td>
-            <td><button class="bsa" onclick="window.showQueryDetail(${q.id})"><i class="bi bi-eye"></i></button></td>
+            <td><button class="bsa" onclick="window.showQueryDetail(${i})"><i class="bi bi-eye"></i></button></td>
         </tr>`;
     }).join('');
 
@@ -95,10 +93,8 @@ function renderPagination() {
     info.textContent = `Mostrando ${from}-${to} de ${_total.toLocaleString()} resultados`;
 
     let html = '';
-    // Prev
     html += `<li class="page-item${_page === 0 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window._qPage=${_page - 1};loadQueries()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">Anterior</a></li>`;
 
-    // Page numbers
     const maxVisible = 5;
     let startP = Math.max(0, _page - Math.floor(maxVisible / 2));
     let endP = Math.min(totalPages - 1, startP + maxVisible - 1);
@@ -119,77 +115,70 @@ function renderPagination() {
         html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();window._qPage=${totalPages - 1};loadQueries()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">${totalPages}</a></li>`;
     }
 
-    // Next
     html += `<li class="page-item${_page >= totalPages - 1 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window._qPage=${_page + 1};loadQueries()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">Siguiente</a></li>`;
 
     pages.innerHTML = html;
 }
 
-// Expose page setter for pagination onclick
 window._qPage = 0;
-Object.defineProperty(window, '_qPage', {
-    set(v) { _page = v; },
-    get() { return _page; }
-});
+Object.defineProperty(window, '_qPage', { set(v) { _page = v; }, get() { return _page; } });
 
-/* ── DETAIL MODAL ── */
-window.showQueryDetail = async function (id) {
-    try {
-        const r = await fetch('/api/queries?limit=500');
-        const res = await r.json();
-        const q = res.data.find(d => d.id === id);
-        if (!q) return;
+/* ── DETAIL MODAL (CORREGIDO) ── */
+window.showQueryDetail = function (index) {
+    // Obtenemos la fila directamente de la memoria (sin hacer fetch al servidor)
+    const q = _lastRenderedRows[index];
+    if (!q) return;
 
-        const op = parseOp(q.sql_text);
-        const tbl = parseTable(q.sql_text, op);
-        const { user, host } = parseUserHost(q.user_host);
-        const opCls = op === 'SELECT' ? 'bs-i' : op === 'INSERT' ? 'bs-s' : op === 'UPDATE' ? 'bs-w' : op === 'DELETE' ? 'bs-d' : 'bs-m';
+    const idx = _page * _limit + index + 1; // Calculamos el número real de fila
+    const op = parseOp(q.sql_text);
+    const tbl = parseTable(q.sql_text, op);
+    const { user, host } = parseUserHost(q.user_host);
+    const opCls = op === 'SELECT' ? 'bs-i' : op === 'INSERT' ? 'bs-s' : op === 'UPDATE' ? 'bs-w' : op === 'DELETE' ? 'bs-d' : 'bs-m';
+    
+    const displayTime = q.event_time && q.event_time !== 'Ejec: 0 veces' ? q.event_time : 'Estadística acumulada';
 
-        document.getElementById('mTitle').innerHTML = `<i class="bi bi-code-slash me-2" style="color:var(--accent)"></i>Consulta #${q.id}`;
-        document.getElementById('mBody').innerHTML = `
-            <div class="row g-3 mb-3">
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Usuario</small><span class="fd" style="font-weight:700;font-size:18px">${esc(user)}</span></div>
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Operación</small><span class="bs ${opCls}" style="font-size:12px;padding:5px 12px">${op}</span></div>
-            </div>
-            <div class="row g-3 mb-3">
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Tabla</small><code style="font-size:15px;color:var(--accent)">${esc(tbl)}</code></div>
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Estado</small><span class="bs bs-s" style="font-size:12px;padding:5px 12px">Completada</span></div>
-            </div>
-            <div class="row g-3 mb-3">
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Fecha y Hora</small><span style="font-size:13px">${q.start_time}</span></div>
-                <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Host / IP</small><code style="font-size:13px">${esc(host)}</code></div>
-            </div>
-            <div>
-                <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Contexto Adicional</label>
-                <div class="codeb" style="font-size:12px;color:var(--text-secondary)">Base de Datos: ${esc(q.db || '—')}
-Query Time: ${(q.query_time * 1000).toFixed(0)} ms
+    document.getElementById('mTitle').innerHTML = `<i class="bi bi-code-slash me-2" style="color:var(--accent)"></i>Consulta #${idx}`;
+    document.getElementById('mBody').innerHTML = `
+        <div class="row g-3 mb-3">
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Usuario</small><span class="fd" style="font-weight:700;font-size:18px">${esc(user)}</span></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Operación</small><span class="bs ${opCls}" style="font-size:12px;padding:5px 12px">${op}</span></div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Tabla</small><code style="font-size:15px;color:var(--accent)">${esc(tbl)}</code></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Estado</small><span class="bs bs-s" style="font-size:12px;padding:5px 12px">Completada</span></div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Ejecuciones</small><span style="font-size:13px;color:var(--accent);font-weight:600">${displayTime}</span></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Host / IP</small><code style="font-size:13px">${esc(host)}</code></div>
+        </div>
+        <div>
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Contexto Adicional</label>
+            <div class="codeb" style="font-size:12px;color:var(--text-secondary)">Base de Datos: ${esc(q.db || '—')}
+Query Time: ${(q.query_time * 1000).toFixed(0)} ms (Promedio)
 Lock Time: ${q.lock_time || '—'}
 Rows Examined: ${formatNum(q.rows_examined)}
 Rows Sent: ${formatNum(q.rows_sent)}</div>
-            </div>
-            <div style="margin-top:14px">
-                <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">SQL Query</label>
-                <pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:14px;font-size:12.5px;color:#e2e8f0;max-height:350px;overflow:auto;margin:0;white-space:pre-wrap;word-break:break-all;font-family:'Fira Code',monospace;line-height:1.6">${esc(q.sql_text)}</pre>
-            </div>`;
+        </div>
+        <div style="margin-top:14px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">SQL Query</label>
+            <pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:14px;font-size:12.5px;color:#e2e8f0;max-height:350px;overflow:auto;margin:0;white-space:pre-wrap;word-break:break-all;font-family:'Fira Code',monospace;line-height:1.6">${esc(q.sql_text)}</pre>
+        </div>`;
 
-        const copyBtn = document.getElementById('copyBtn');
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(q.sql_text);
-            copyBtn.innerHTML = '<i class="bi bi-check me-1"></i>Copiado';
-            setTimeout(() => { copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar SQL'; }, 2000);
-        };
+    const copyBtn = document.getElementById('copyBtn');
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(q.sql_text);
+        copyBtn.innerHTML = '<i class="bi bi-check me-1"></i>Copiado';
+        setTimeout(() => { copyBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar SQL'; }, 2000);
+    };
 
-        new bootstrap.Modal(document.getElementById('detailModal')).show();
-    } catch (e) {
-        console.error('Error detalle:', e);
-    }
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
 };
 
-/* ── CLEAR FILTERS ── */
+/* ── CLEAR FILTERS (CORREGIDO) ── */
 window.clearQueryFilters = function () {
     document.getElementById('qUser').value = '';
     document.getElementById('qDb').value = '';
-    document.getElementById('qDate').value = '';
+    document.getElementById('qType').value = 'SELECT'; // <--- CORREGIDO
     document.getElementById('qSearch').value = '';
     _page = 0;
     loadQueries();
@@ -198,12 +187,10 @@ window.clearQueryFilters = function () {
 /* ── DROPDOWNS ── */
 async function loadDropdowns() {
     try {
-        
         const [uRes, dRes] = await Promise.all([
             fetch('/api/queries/users'),      
             fetch('/api/queries/databases')   
         ]);
-
 
         const users = await uRes.json();
         const dbs = await dRes.json();

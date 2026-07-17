@@ -43,7 +43,7 @@ def _get_replication_module():
             DeleteRowsEvent,
             UpdateRowsEvent,
             WriteRowsEvent,
-            TableMapEvent,  # ← NUEVO: Necesario para obtener los nombres reales de las columnas
+            TableMapEvent,  
         )
         return BinLogStreamReader, WriteRowsEvent, UpdateRowsEvent, DeleteRowsEvent, TableMapEvent
     except ImportError:
@@ -63,6 +63,10 @@ class BinlogStreamService:
         self._lock = threading.Lock()
         self._eps_counter: int = 0
         self._eps_last_time: float = time.time()
+        
+        # NUEVO: Caché para resolver los nombres de columnas en MySQL 5.7
+        self._columns_cache: dict = {} 
+        
         self._stats: dict = {
             "total_events": 0,
             "insert_count": 0,
@@ -182,11 +186,56 @@ class BinlogStreamService:
         await asyncio.sleep(0.5)
         await self.start(mysql_config)
 
+    # ── NUEVO: Resolver nombres de columnas para MySQL 5.7 ───────
 
+    def _fetch_columns_sync(self, schema: str, table: str, mysql_config: dict):
+        """Consulta information_schema para obtener los nombres reales de las columnas."""
+        key = f"{schema}.{table}"
+        if key in self._columns_cache:
+            return self._columns_cache[key]
+        
+        try:
+            import pymysql # pymysql-replication lo usa, así que existe
+            conn = pymysql.connect(
+                host=mysql_config.get("host", "localhost"),
+                port=int(mysql_config.get("port", 3306)),
+                user=mysql_config.get("user", "root"),
+                password=mysql_config.get("passwd") or mysql_config.get("password", ""),
+                connect_timeout=5,
+            )
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ORDER BY ORDINAL_POSITION",
+                        (schema, table)
+                    )
+                    rows = cur.fetchall()
+                    cols = [r[0] for r in rows]
+                    self._columns_cache[key] = cols
+                    return cols
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error(f"Error obteniendo columnas para {key}: {e}")
+            return None
 
-
-
-
+    @staticmethod
+    def _map_columns(row_dict: dict, col_names: list) -> dict:
+        """Reemplaza claves UNKNOWN_COL0, 0, 1... por los nombres reales."""
+        if not col_names:
+            return row_dict
+            
+        mapped = {}
+        for i, name in enumerate(col_names):
+            # pymysql-replication puede mandar la clave como entero o como UNKNOWN_COLx
+            if i in row_dict:
+                mapped[name] = row_dict[i]
+            elif f"UNKNOWN_COL{i}" in row_dict:
+                mapped[name] = row_dict[f"UNKNOWN_COL{i}"]
+            elif name in row_dict:
+                mapped[name] = row_dict[name]
+        return mapped
 
     # ── Thread: lector síncrono del binlog ────────────────────────
 
@@ -238,8 +287,14 @@ class BinlogStreamService:
                     for binlog_event in stream:
                         if not self._running:
                             break
+                            
+                        # NUEVO: Interceptamos el TableMap para precargar columnas
+                        if isinstance(binlog_event, TableMapEvt):
+                            self._fetch_columns_sync(binlog_event.schema, binlog_event.table, mysql_config)
+                            continue
+
                         event_data = self._extract_event(
-                            binlog_event, WriteEvt, UpdateEvt, DeleteEvt
+                            binlog_event, WriteEvt, UpdateEvt, DeleteEvt, mysql_config
                         )
                         if event_data:
                             try:
@@ -264,12 +319,9 @@ class BinlogStreamService:
                         return
                     time.sleep(1)
 
-
-
-
     # ── Extracción segura de datos del evento ─────────────────────
 
-    def _extract_event(self, event, WriteEvt, UpdateEvt, DeleteEvt) -> Optional[dict]:
+    def _extract_event(self, event, WriteEvt, UpdateEvt, DeleteEvt, mysql_config) -> Optional[dict]:
         try:
             if isinstance(event, WriteEvt):
                 etype = "INSERT"
@@ -280,21 +332,28 @@ class BinlogStreamService:
             else:
                 return None
 
+            # NUEVO: Obtener nombres reales de columnas del caché
+            key = f"{event.schema}.{event.table}"
+            col_names = self._columns_cache.get(key)
+
             rows_data = []
             for row in event.rows[:MAX_ROW_DATA_ROWS]:
                 if etype == "INSERT":
-                    rows_data.append(self._clean(row.get("values", {})))
+                    vals = self._clean(row.get("values", {}))
+                    if col_names: vals = self._map_columns(vals, col_names)
+                    rows_data.append(vals)
                 elif etype == "DELETE":
-                    rows_data.append(self._clean(row.get("values", {})))
+                    vals = self._clean(row.get("values", {}))
+                    if col_names: vals = self._map_columns(vals, col_names)
+                    rows_data.append(vals)
                 elif etype == "UPDATE":
-                    rows_data.append(
-                        {
-                            "before": self._clean(row.get("before_values", {})),
-                            "after": self._clean(row.get("after_values", {})),
-                        }
-                    )
+                    before = self._clean(row.get("before_values", {}))
+                    after = self._clean(row.get("after_values", {}))
+                    if col_names:
+                        before = self._map_columns(before, col_names)
+                        after = self._map_columns(after, col_names)
+                    rows_data.append({"before": before, "after": after})
                     
-            # Obtener log_file y log_pos de forma segura (varía según la versión de la lib)
             log_file = getattr(event, 'log_file', None) or getattr(event.packet, 'log_file', 'unknown')
             log_pos = getattr(event, 'log_pos', None) or getattr(event.packet, 'log_pos', 0)
 
@@ -336,7 +395,6 @@ class BinlogStreamService:
                 "SELECT log_file, log_pos FROM binlog_position WHERE id=1"
             ).fetchone()
             conn.close()
-            # Solo devolver si es un nombre de archivo válido
             if row and row["log_file"] not in (None, "unknown", ""):
                 return {"log_file": row["log_file"], "log_pos": row["log_pos"]}
         except Exception:
@@ -344,10 +402,8 @@ class BinlogStreamService:
         return None
 
     def _save_position(self, log_file: str, log_pos: int):
-        # No guardar si no tenemos un nombre de archivo real
         if not log_file or log_file == "unknown":
             return
-            
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute(
@@ -376,7 +432,6 @@ class BinlogStreamService:
             except queue.Empty:
                 continue
 
-            # Stats
             with self._lock:
                 self._stats["total_events"] += 1
                 self._stats["last_event_at"] = datetime.now(
@@ -397,23 +452,19 @@ class BinlogStreamService:
                     self._stats["tables_hot"].get(key, 0) + 1
                 )
 
-            # SQLite (fire-and-forget en executor para no bloquear)
             await self._store_event(evt)
 
-            # Posición (sync en executor)
             loop.run_in_executor(
                 None, self._save_position, evt["log_file"], evt["log_pos"]
             )
 
-            # Buffer en memoria
             self._recent_events.append(evt)
 
-            # Broadcast WS (sin row_data pesado, solo un preview)
             row_preview = None
             try:
                 rows = json.loads(evt.get("row_data", "[]"))
                 if rows:
-                    row_preview = rows[0]  # Solo la primera fila para el preview
+                    row_preview = rows[0]
             except Exception:
                 pass
 

@@ -66,7 +66,22 @@ async def get_events(
                 pass
         else:
             e.pop("row_data", None)
-    return result
+        # Mapear los nombres de columna a lo que espera el nuevo frontend
+    final_result = []
+    for e in result:
+        final_result.append({
+            "id": e.get("id"),
+            "event_time": e.get("event_time"),
+            "event_type": e.get("event_type"),
+            "schema": e.get("schema_name"),   # <--- Antes schema_name
+            "table": e.get("table_name"),      # <--- Antes table_name
+            "affected_rows": e.get("affected_rows"),
+            "log_file": e.get("log_file"),
+            "log_pos": e.get("log_pos"),
+            "row_data": e.get("row_data")
+        })
+        
+    return final_result
 
 
 @router.get("/stats")

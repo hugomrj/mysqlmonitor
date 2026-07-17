@@ -108,7 +108,7 @@ async def init_slow_queries_table(db_path: str = "monitor.db"):
 
 
 async def init_queries_cache_table(db_path: str = "monitor.db"):
-    """Crea tabla para cachear consultas del general_log."""
+    """Crea tabla para cachear consultas (performance_schema)."""
     async with aiosqlite.connect(db_path) as db:
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS queries_cache (
@@ -119,12 +119,16 @@ async def init_queries_cache_table(db_path: str = "monitor.db"):
                 command_type TEXT,
                 db TEXT,
                 sql_text TEXT,
-                sql_hash TEXT,
+                sql_hash TEXT UNIQUE,
+                query_time REAL DEFAULT 0,
+                lock_time REAL DEFAULT 0,
+                rows_examined INTEGER DEFAULT 0,
+                rows_sent INTEGER DEFAULT 0,
+                exec_count INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_qc_time ON queries_cache(event_time);
             CREATE INDEX IF NOT EXISTS idx_qc_user ON queries_cache(user_name);
             CREATE INDEX IF NOT EXISTS idx_qc_db ON queries_cache(db);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_qc_hash ON queries_cache(sql_hash);
         """)
-        await db.commit()        
+        await db.commit()     
