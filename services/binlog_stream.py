@@ -1,13 +1,8 @@
-#services/binlog_stream.py
 """
-Binlog Stream Service
-=====================
+Binlog Stream Service (OPTIMIZADO)
+===================================
 Lee el binlog de MySQL 5.7 como esclavo silencioso usando python-mysql-replication.
-Corre en un thread separado (la lib es síncrona/blocking) y puentea eventos
-al event loop async vía Queue. Los eventos se:
-  - Guardan en SQLite (auditoría)
-  - Broadcastean por WebSocket /ws/binlog
-  - Mantienen en memoria un buffer circular para clientes nuevos
+Optimizado para: bajo overhead, captura multi-BD, recuperación automática de posición.
 """
 import asyncio
 import json
@@ -16,17 +11,14 @@ import queue
 import sqlite3
 import threading
 import time
-import random
 from collections import deque
 from datetime import datetime, timezone
 from typing import Optional, Set
 
 import aiosqlite
 
-
-import logging
+# Silenciar logs de pymysql-replication
 logging.getLogger("pymysqlreplication").setLevel(logging.ERROR)
-
 
 logger = logging.getLogger("binlog_stream")
 
@@ -34,6 +26,9 @@ DB_PATH = "monitor.db"
 MAX_STORED_EVENTS = 10000
 MAX_ROW_DATA_ROWS = 5
 MAX_STRING_LENGTH = 200
+
+# [OPTIMIZACIÓN 1] Server ID fijo para evitar conflictos de replicación
+SERVER_ID = 100
 
 
 def _get_replication_module():
@@ -44,7 +39,7 @@ def _get_replication_module():
             DeleteRowsEvent,
             UpdateRowsEvent,
             WriteRowsEvent,
-            TableMapEvent,  
+            TableMapEvent,
         )
         return BinLogStreamReader, WriteRowsEvent, UpdateRowsEvent, DeleteRowsEvent, TableMapEvent
     except ImportError:
@@ -56,7 +51,8 @@ def _get_replication_module():
 
 class BinlogStreamService:
     def __init__(self):
-        self._queue: queue.Queue = queue.Queue(maxsize=50000)
+        # [OPTIMIZACIÓN 3] Queue más grande para absorber picos de eventos
+        self._queue: queue.Queue = queue.Queue(maxsize=100000)
         self._thread: Optional[threading.Thread] = None
         self._running: bool = False
         self._recent_events: deque = deque(maxlen=500)
@@ -64,10 +60,10 @@ class BinlogStreamService:
         self._lock = threading.Lock()
         self._eps_counter: int = 0
         self._eps_last_time: float = time.time()
-        
-        # NUEVO: Caché para resolver los nombres de columnas en MySQL 5.7
-        self._columns_cache: dict = {} 
-        
+
+        # Caché para resolver los nombres de columnas en MySQL 5.7
+        self._columns_cache: dict = {}
+
         self._stats: dict = {
             "total_events": 0,
             "insert_count": 0,
@@ -116,7 +112,7 @@ class BinlogStreamService:
                 host=mysql_config.get("host", "localhost"),
                 port=int(mysql_config.get("port", 3306)),
                 user=mysql_config.get("user", "root"),
-                password=mysql_config.get("password", ""),      
+                password=mysql_config.get("password", ""),
                 connect_timeout=5,
             )
             try:
@@ -170,7 +166,7 @@ class BinlogStreamService:
             name="binlog-streamer",
         )
         self._thread.start()
-        logger.info("Binlog streamer iniciado")
+        logger.info(f"Binlog streamer iniciado (server_id={SERVER_ID})")
         asyncio.create_task(self._consume_loop())
         asyncio.create_task(self._eps_calculator())
 
@@ -187,22 +183,24 @@ class BinlogStreamService:
         await asyncio.sleep(0.5)
         await self.start(mysql_config)
 
-    # ── NUEVO: Resolver nombres de columnas para MySQL 5.7 ───────
+    # ── Resolver nombres de columnas para MySQL 5.7 ───────────────
 
     def _fetch_columns_sync(self, schema: str, table: str, mysql_config: dict):
-        """Consulta information_schema para obtener los nombres reales de las columnas."""
+        """Consulta information_schema para obtener los nombres reales de las columnas.
+        [OPTIMIZACIÓN 2] Solo consulta si la tabla NO está cacheada."""
         key = f"{schema}.{table}"
         if key in self._columns_cache:
             return self._columns_cache[key]
-        
+
         try:
-            import pymysql # pymysql-replication lo usa, así que existe
+            import pymysql
             conn = pymysql.connect(
                 host=mysql_config.get("host", "localhost"),
                 port=int(mysql_config.get("port", 3306)),
                 user=mysql_config.get("user", "root"),
                 password=mysql_config.get("passwd") or mysql_config.get("password", ""),
-                connect_timeout=5,
+                connect_timeout=3,
+                read_timeout=3,
             )
             try:
                 with conn.cursor() as cur:
@@ -226,10 +224,9 @@ class BinlogStreamService:
         """Reemplaza claves UNKNOWN_COL0, 0, 1... por los nombres reales."""
         if not col_names:
             return row_dict
-            
+
         mapped = {}
         for i, name in enumerate(col_names):
-            # pymysql-replication puede mandar la clave como entero o como UNKNOWN_COLx
             if i in row_dict:
                 mapped[name] = row_dict[i]
             elif f"UNKNOWN_COL{i}" in row_dict:
@@ -251,11 +248,10 @@ class BinlogStreamService:
 
         while self._running:
             try:
-                # ── RECARGAR CONFIG DE MEMORIA EN CADA CICLO ──
+                # Recargar config de memoria en cada ciclo
                 try:
                     from config_state import get_mysql_config_dict
                     mysql_config = get_mysql_config_dict()
-                    logger.debug(f"Config recargada: host={mysql_config.get('host')}")
                 except Exception as e:
                     logger.warning(f"No se pudo recargar config, usando original: {e}")
 
@@ -272,55 +268,44 @@ class BinlogStreamService:
                         "connect_timeout": 10,
                         "read_timeout": 30,
                     },
-                    server_id=random.randint(100000, 999999),
+                    server_id=SERVER_ID,  # [OPT 1] Fijo en lugar de aleatorio
                     blocking=True,
                     only_events=[TableMapEvt, WriteEvt, UpdateEvt, DeleteEvt],
                     resume_stream=True,
                     log_file=saved_pos.get("log_file") if saved_pos else None,
                     log_pos=saved_pos.get("log_pos") if saved_pos else None,
                 )
-                
-                logger.info(
-                    f"Binlog conectado, posición: {saved_pos or 'inicio'}"
-                )
 
-
-
+                logger.info(f"Binlog conectado, posición: {saved_pos or 'inicio'}")
 
                 try:
                     for binlog_event in stream:
-                         
-                        logger.info(f"🔥 BINLOG EVENT RECIBIDO: {type(binlog_event).__name__}")
-
                         if not self._running:
                             break
-                            
-                        # NUEVO: Interceptamos el TableMap para precargar columnas
+
+                        # [OPT 2] Solo consulta columnas si NO están cacheadas
                         if isinstance(binlog_event, TableMapEvt):
-                            self._fetch_columns_sync(binlog_event.schema, binlog_event.table, mysql_config)
+                            cache_key = f"{binlog_event.schema}.{binlog_event.table}"
+                            if cache_key not in self._columns_cache:
+                                self._fetch_columns_sync(binlog_event.schema, binlog_event.table, mysql_config)
                             continue
 
-                            
-
-
                         event_data = self._extract_event(
-                            binlog_event, WriteEvt, UpdateEvt, DeleteEvt, mysql_config
+                            binlog_event, WriteEvt, UpdateEvt, DeleteEvt
                         )
                         if event_data:
-                            # ── FIX: Obtener posición REAL del stream (no del evento) ──
+                            # [OPT 5] Posición REAL desde el stream (única fuente válida)
                             try:
                                 event_data["log_file"] = stream.log_file
                                 event_data["log_pos"] = stream.log_pos
                             except AttributeError:
-                                # Fallback por si la versión de pymysql-replication es diferente
                                 event_data["log_file"] = getattr(stream, 'log_file', 'unknown')
                                 event_data["log_pos"] = getattr(stream, 'log_pos', 0)
-                            
+
                             try:
                                 self._queue.put_nowait(event_data)
                             except queue.Full:
                                 logger.warning("Queue llena, descartando evento")
-
 
                 finally:
                     stream.close()
@@ -331,14 +316,17 @@ class BinlogStreamService:
                 with self._lock:
                     self._stats["streamer_running"] = False
                     self._stats["error"] = err
-                for _ in range(30):
+                # Backoff exponencial antes de reintentar
+                for i in range(5):
                     if not self._running:
                         return
-                    time.sleep(1)
+                    time.sleep(min(1 + i, 5))
 
     # ── Extracción segura de datos del evento ─────────────────────
 
-    def _extract_event(self, event, WriteEvt, UpdateEvt, DeleteEvt, mysql_config) -> Optional[dict]:
+    def _extract_event(self, event, WriteEvt, UpdateEvt, DeleteEvt) -> Optional[dict]:
+        """[OPT 5] Ya no recibe mysql_config, solo extrae datos del evento.
+        La posición se obtiene del stream en _run_streamer."""
         try:
             if isinstance(event, WriteEvt):
                 etype = "INSERT"
@@ -349,7 +337,6 @@ class BinlogStreamService:
             else:
                 return None
 
-            # NUEVO: Obtener nombres reales de columnas del caché
             key = f"{event.schema}.{event.table}"
             col_names = self._columns_cache.get(key)
 
@@ -357,11 +344,13 @@ class BinlogStreamService:
             for row in event.rows[:MAX_ROW_DATA_ROWS]:
                 if etype == "INSERT":
                     vals = self._clean(row.get("values", {}))
-                    if col_names: vals = self._map_columns(vals, col_names)
+                    if col_names:
+                        vals = self._map_columns(vals, col_names)
                     rows_data.append(vals)
                 elif etype == "DELETE":
                     vals = self._clean(row.get("values", {}))
-                    if col_names: vals = self._map_columns(vals, col_names)
+                    if col_names:
+                        vals = self._map_columns(vals, col_names)
                     rows_data.append(vals)
                 elif etype == "UPDATE":
                     before = self._clean(row.get("before_values", {}))
@@ -370,30 +359,6 @@ class BinlogStreamService:
                         before = self._map_columns(before, col_names)
                         after = self._map_columns(after, col_names)
                     rows_data.append({"before": before, "after": after})
-                    
-
-            # Obtener log_file y log_pos del packet (donde pymysql-replication los guarda)
-            log_file = None
-            log_pos = 0
-
-            if hasattr(event, 'packet') and event.packet:
-                log_file = getattr(event.packet, 'log_file', None)
-                log_pos = getattr(event.packet, 'log_pos', 0)
-
-            # Fallback si no están en packet
-            if not log_file:
-                log_file = getattr(event, 'log_file', None)
-            if not log_pos:
-                log_pos = getattr(event, 'log_pos', 0)
-
-            # Último fallback
-            if not log_file:
-                log_file = 'unknown'
-            if not log_pos:
-                log_pos = 0
-
-
-
 
             return {
                 "event_time": datetime.now(timezone.utc).isoformat(),
@@ -402,8 +367,9 @@ class BinlogStreamService:
                 "table": event.table,
                 "affected_rows": len(event.rows),
                 "row_data": json.dumps(rows_data, default=str, ensure_ascii=False),
-                "log_file": log_file,
-                "log_pos": log_pos,
+                # log_file y log_pos se sobrescriben en _run_streamer
+                "log_file": "unknown",
+                "log_pos": 0,
             }
         except Exception as e:
             logger.error(f"Error extrayendo evento: {e}")
@@ -439,13 +405,8 @@ class BinlogStreamService:
             pass
         return None
 
-
     def _save_position(self, log_file: str, log_pos: int):
-        # AGREGA ESTE LOG:
-        logger.info(f"💾 Guardando posición: log_file={log_file}, log_pos={log_pos}")
-        
         if not log_file or log_file == "unknown":
-            logger.warning(f"⚠️ Posición inválida, no se guarda: {log_file}")
             return
         try:
             conn = sqlite3.connect(DB_PATH)
@@ -460,16 +421,17 @@ class BinlogStreamService:
             )
             conn.commit()
             conn.close()
-            logger.info(f"✅ Posición guardada: {log_file}:{log_pos}")
         except Exception as e:
             logger.error(f"Error guardando posición: {e}")
-
-
 
     # ── Loop async: consume de la queue ───────────────────────────
 
     async def _consume_loop(self):
+        """[OPT 4] Log de rendimiento cada 10 segundos."""
         loop = asyncio.get_event_loop()
+        processed_count = 0
+        last_log_time = time.time()
+
         while self._running:
             try:
                 evt = await loop.run_in_executor(
@@ -478,11 +440,23 @@ class BinlogStreamService:
             except queue.Empty:
                 continue
 
+            processed_count += 1
+
+            # [OPT 4] Log de rendimiento cada 10 segundos
+            now = time.time()
+            if now - last_log_time >= 10:
+                elapsed = now - last_log_time
+                rate = processed_count / elapsed if elapsed > 0 else 0
+                logger.info(
+                    f"📊 Rendimiento: {processed_count} eventos en {elapsed:.1f}s "
+                    f"({rate:.1f} evt/s) | Cola: {self._queue.qsize()}"
+                )
+                processed_count = 0
+                last_log_time = now
+
             with self._lock:
                 self._stats["total_events"] += 1
-                self._stats["last_event_at"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
+                self._stats["last_event_at"] = datetime.now(timezone.utc).isoformat()
                 self._eps_counter += 1
                 t = evt["event_type"]
                 if t == "INSERT":
