@@ -1,3 +1,4 @@
+# collectors/general_log.py
 import logging
 
 logger = logging.getLogger("mysql_monitor.collectors.general_log")

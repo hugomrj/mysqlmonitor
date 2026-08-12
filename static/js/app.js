@@ -47,6 +47,10 @@ window.go = function(p) {
 };
 
 
+
+
+
+
 // ── WEBSOCKET PRINCIPAL ──
 function connectWS(){
     const p=location.protocol==='https:'?'wss':'ws';
@@ -92,6 +96,47 @@ function connectWS(){
 }
 
 
+// ── WEBSOCKET BINLOG (Tiempo Real) ──
+function connectBinlogWS(){
+    const p=location.protocol==='https:'?'wss':'ws';
+    blWs=new WebSocket(`${p}://${location.host}/ws/binlog`);
+    
+    blWs.onopen=()=>{
+        setWSStatus(true,'blWsBadge','BINLOG');
+        document.getElementById('blWsBadge').style.display='';
+    };
+    
+    blWs.onmessage=e=>{
+        try{
+            const msg=JSON.parse(e.data);
+            if(msg.type==='binlog_event'){
+                // Si existe la función de auditoría, llamarla
+                if(typeof window.handleBinlogEvent === 'function'){
+                    window.handleBinlogEvent(msg.data);
+                }
+                // También actualizar la sección de auditoría si está activa
+                if(curPage === 'audit' && typeof window.loadAudit === 'function'){
+                    // Recargar auditoría cada 5 eventos para no saturar
+                    if(Math.random() < 0.2) window.loadAudit();
+                }
+            }
+        }catch(x){}
+    };
+    
+    blWs.onclose=()=>{
+        setWSStatus(false,'blWsBadge','BINLOG');
+        setTimeout(connectBinlogWS,3000);
+    };
+    
+    blWs.onerror=()=>blWs.close();
+}
+
+// Variable global para el WebSocket de binlog
+let blWs = null;
+
+
+
+
 // ── ESTADO DEL BINLOG (Indicador Sidebar) ──
 async function checkBinlogIndicator(){
     try {
@@ -124,11 +169,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.nli').forEach(l=>l.addEventListener('click',()=>go(l.dataset.p)));
     document.getElementById('bhbtn').addEventListener('click',()=>{document.getElementById('sb').classList.toggle('open');document.getElementById('sov').classList.toggle('show')});
     document.getElementById('sov').addEventListener('click',()=>{document.getElementById('sb').classList.remove('open');document.getElementById('sov').classList.remove('show')});
+    
+    // Conectar ambos WebSockets
     connectWS();
+    connectBinlogWS();  
     
     // Iniciar indicador del binlog
     checkBinlogIndicator();
-    setInterval(checkBinlogIndicator, 30000); // Revisar cada 30 segundos
+    setInterval(checkBinlogIndicator, 30000);
     
     go('dashboard');
 });

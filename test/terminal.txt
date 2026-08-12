@@ -1,0 +1,35 @@
+cd /home/hugo/dev/fastapi/mysqlmonitor
+source venv/bin/activate
+cd test
+
+# Opción A: Con contraseña por argumento
+python setup_db.py --host 192.168.204.27 --user root --password "sistema7050"
+
+# Opción B: Pedir contraseña por consola
+python setup_db.py --host 192.168.204.27 --user root
+# Te pedirá: Contraseña de MySQL: ********
+
+
+
+
+
+
+
+
+
+
+
+
+
+# En otra terminal, con la misma venv
+cd /home/hugo/dev/fastapi/mysqlmonitor
+source venv/bin/activate
+cd test
+
+# Generar todos los tipos de eventos cada 2 segundos
+python generate_events.py --host 192.168.204.27 --user root --interval 2.0
+
+# O solo ciertos tipos de eventos
+python generate_events.py --host 192.168.204.27 --user root --operations insert_usuario update_usuario --interval 1.5
+
+# Presiona Ctrl+C para detener

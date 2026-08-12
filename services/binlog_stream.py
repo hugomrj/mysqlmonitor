@@ -1,3 +1,4 @@
+#services/binlog_stream.py
 """
 Binlog Stream Service
 =====================
@@ -283,8 +284,14 @@ class BinlogStreamService:
                     f"Binlog conectado, posición: {saved_pos or 'inicio'}"
                 )
 
+
+
+
                 try:
                     for binlog_event in stream:
+                         
+                        logger.info(f"🔥 BINLOG EVENT RECIBIDO: {type(binlog_event).__name__}")
+
                         if not self._running:
                             break
                             
@@ -354,8 +361,29 @@ class BinlogStreamService:
                         after = self._map_columns(after, col_names)
                     rows_data.append({"before": before, "after": after})
                     
-            log_file = getattr(event, 'log_file', None) or getattr(event.packet, 'log_file', 'unknown')
-            log_pos = getattr(event, 'log_pos', None) or getattr(event.packet, 'log_pos', 0)
+
+            # Obtener log_file y log_pos del packet (donde pymysql-replication los guarda)
+            log_file = None
+            log_pos = 0
+
+            if hasattr(event, 'packet') and event.packet:
+                log_file = getattr(event.packet, 'log_file', None)
+                log_pos = getattr(event.packet, 'log_pos', 0)
+
+            # Fallback si no están en packet
+            if not log_file:
+                log_file = getattr(event, 'log_file', None)
+            if not log_pos:
+                log_pos = getattr(event, 'log_pos', 0)
+
+            # Último fallback
+            if not log_file:
+                log_file = 'unknown'
+            if not log_pos:
+                log_pos = 0
+
+
+
 
             return {
                 "event_time": datetime.now(timezone.utc).isoformat(),
@@ -401,24 +429,32 @@ class BinlogStreamService:
             pass
         return None
 
+
     def _save_position(self, log_file: str, log_pos: int):
+        # AGREGA ESTE LOG:
+        logger.info(f"💾 Guardando posición: log_file={log_file}, log_pos={log_pos}")
+        
         if not log_file or log_file == "unknown":
+            logger.warning(f"⚠️ Posición inválida, no se guarda: {log_file}")
             return
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute(
                 """INSERT INTO binlog_position (id,log_file,log_pos,updated_at)
-                   VALUES(1,?,?,datetime('now'))
-                   ON CONFLICT(id) DO UPDATE SET
-                     log_file=excluded.log_file,
-                     log_pos=excluded.log_pos,
-                     updated_at=excluded.updated_at""",
+                VALUES(1,?,?,datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    log_file=excluded.log_file,
+                    log_pos=excluded.log_pos,
+                    updated_at=excluded.updated_at""",
                 (log_file, log_pos),
             )
             conn.commit()
             conn.close()
+            logger.info(f"✅ Posición guardada: {log_file}:{log_pos}")
         except Exception as e:
             logger.error(f"Error guardando posición: {e}")
+
+
 
     # ── Loop async: consume de la queue ───────────────────────────
 
