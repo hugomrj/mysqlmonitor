@@ -300,17 +300,27 @@ class BinlogStreamService:
                             self._fetch_columns_sync(binlog_event.schema, binlog_event.table, mysql_config)
                             continue
 
+                            
+
+
                         event_data = self._extract_event(
                             binlog_event, WriteEvt, UpdateEvt, DeleteEvt, mysql_config
                         )
                         if event_data:
+                            # ── FIX: Obtener posición REAL del stream (no del evento) ──
+                            try:
+                                event_data["log_file"] = stream.log_file
+                                event_data["log_pos"] = stream.log_pos
+                            except AttributeError:
+                                # Fallback por si la versión de pymysql-replication es diferente
+                                event_data["log_file"] = getattr(stream, 'log_file', 'unknown')
+                                event_data["log_pos"] = getattr(stream, 'log_pos', 0)
+                            
                             try:
                                 self._queue.put_nowait(event_data)
                             except queue.Full:
                                 logger.warning("Queue llena, descartando evento")
-                            with self._lock:
-                                self._stats["current_log_file"] = getattr(binlog_event, 'log_file', None) or getattr(binlog_event.packet, 'log_file', 'unknown')
-                                self._stats["current_log_pos"] = getattr(binlog_event, 'log_pos', None) or getattr(binlog_event.packet, 'log_pos', 0)
+
 
                 finally:
                     stream.close()
