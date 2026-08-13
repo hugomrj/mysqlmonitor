@@ -33,3 +33,25 @@ class AppSettings(BaseModel):
     refresh_interval: float = Field(default=2.0, ge=0.5, le=60.0)
     alerts: AlertThresholds = Field(default_factory=AlertThresholds)
     binlog_enabled: bool = True
+    
+    # ── Configuración de Consultas Lentas ──
+    slow_query_threshold: float = Field(
+        default=3.0, 
+        ge=1, 
+        le=60, 
+        description="Umbral en segundos para considerar una consulta como lenta (1-60)"
+    )
+    slow_log_enabled: bool = Field(
+        default=True, 
+        description="Activar registro de consultas lentas (activado por defecto)"
+    )
+    log_queries_not_using_indexes: bool = Field(
+        default=True, 
+        description="Registrar también consultas sin índices (activado por defecto)"
+    )
+    
+    # ── Configuración de Consultas Recientes ──
+    recent_queries_enabled: bool = Field(
+        default=True,
+        description="Activar monitoreo de consultas recientes en memoria"
+    )

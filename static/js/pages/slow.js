@@ -9,7 +9,7 @@ export async function loadSlowQueries() {
 
 async function fetchAndRender() {
     const body = document.getElementById('slowBody');
-    body.innerHTML = `<tr><td colspan="9" class="empty-state"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Cargando...</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10" class="empty-state"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Cargando...</td></tr>`;
 
     const params = new URLSearchParams();
     
@@ -27,7 +27,8 @@ async function fetchAndRender() {
         const res = await r.json();
         renderTable(res.data || []);
     } catch (e) {
-        body.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
+        console.error('Error cargando slow queries:', e);
+        body.innerHTML = `<tr><td colspan="10" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
     }
 }
 
@@ -36,15 +37,15 @@ function renderTable(rows) {
     const body = document.getElementById('slowBody');
 
     if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Sin consultas lentas registradas</p></td></tr>`;
+        body.innerHTML = `<tr><td colspan="10" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Sin consultas lentas registradas (>= ${document.getElementById('slowMinTime').value}s)</p></td></tr>`;
         return;
     }
 
     body.innerHTML = rows.map((q, i) => {
         const idx = i + 1;
         const { user, host } = parseUserHost(q.user_host);
+        const ip = q.client_ip || host || '—';
         
-        // Formatear tiempo (viene en segundos, ej: 12.000375)
         const ms = (q.query_time * 1000).toFixed(0);
         const timeClr = q.query_time >= 10 ? 'var(--danger)' : q.query_time >= 5 ? 'var(--warning)' : 'var(--text-primary)';
 
@@ -55,6 +56,7 @@ function renderTable(rows) {
             <td><code class="sql-snippet">${esc(truncateSQL(q.sql_text))}</code></td>
             <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${ms} ms</span></td>
             <td style="font-size:12.5px">${esc(user)}</td>
+            <td style="font-size:12px"><code>${esc(ip)}</code></td>
             <td class="fd" style="font-weight:600">${formatNum(q.rows_examined || 0)}</td>
             <td class="text-secondary">${formatNum(q.rows_sent || 0)}</td>
             <td><span class="bs bs-i">${esc(q.db || '—')}</span></td>
@@ -71,6 +73,7 @@ window.showSlowDetail = function (index) {
 
     const idx = index + 1;
     const { user, host } = parseUserHost(q.user_host);
+    const ip = q.client_ip || host || '—';
     const ms = (q.query_time * 1000).toFixed(0);
     const lockMs = q.lock_time ? (q.lock_time * 1000).toFixed(2) : '—';
     
@@ -84,7 +87,7 @@ window.showSlowDetail = function (index) {
         </div>
         <div class="row g-3 mb-3">
             <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Base de Datos</small><code style="font-size:15px;color:var(--accent)">${esc(q.db || '—')}</code></div>
-            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Host / IP</small><code style="font-size:13px">${esc(host)}</code></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">IP Cliente</small><code style="font-size:13px">${esc(ip)}</code></div>
         </div>
         <div class="row g-3 mb-3">
             <div class="col-4"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Fecha y Hora</small><span style="font-size:13px">${q.start_time}</span></div>
@@ -125,16 +128,18 @@ async function loadDropdowns() {
         const dSel = document.getElementById('slowDb');
         const cd = dSel.value;
         dSel.innerHTML = '<option value="">Todas</option>' + dbs.map(d => `<option value="${esc(d)}"${d === cd ? ' selected' : ''}>${esc(d)}</option>`).join('');
-    } catch (e) {}
+    } catch (e) {
+        console.error('Error cargando dropdowns:', e);
+    }
 }
 
-/* ── CLEAR HISTORY (Faltaba) ── */
+/* ── CLEAR HISTORY ── */
 export async function clearSlowHistory() {
     if (!confirm('¿Limpiar todo el historial de consultas lentas?')) return;
     try {
         const r = await fetch('/api/slow-queries', { method: 'DELETE' });
         if (r.ok) {
-            document.getElementById('slowBody').innerHTML = `<tr><td colspan="9" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Historial limpiado</p></td></tr>`;
+            document.getElementById('slowBody').innerHTML = `<tr><td colspan="10" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Historial limpiado</p></td></tr>`;
             const { showToast } = await import('../helpers.js');
             showToast('Historial de consultas lentas limpiado');
         }

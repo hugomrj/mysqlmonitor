@@ -1,29 +1,40 @@
+//static/js/app.js
 import { setText, setBar, esc, formatNum, showToast, updateSidebarStatus, setWSStatus } from './helpers.js';
 import { initDashboard, updateDashboard } from './pages/dashboard.js';
 import { loadResourceCharts } from './pages/resources.js';
 import { loadSlowQueries, clearSlowHistory } from './pages/slow.js';
-import { loadQueries } from './pages/queries.js';
+
 import { loadAudit } from './pages/audit.js';
+import { loadRecentQueries, initRecent, clearRecentQueries } from './pages/recent.js';
 
 // ═══ EXPONER AL GLOBAL para onclick del HTML ═══
 window.loadSlowQueries = loadSlowQueries;
 window.clearSlowHistory = clearSlowHistory;
-window.loadQueries = loadQueries;
+
 window.setText = setText;
 window.setBar = setBar;
 window.esc = esc;
 window.formatNum = formatNum;
 window.showToast = showToast;
 window.loadAudit = loadAudit;
+window.loadRecentQueries = loadRecentQueries;  // NUEVO
+window.clearRecentQueries = clearRecentQueries;  // NUEVO
 
 let ws = null;
 let curPage = 'dashboard';
 
 // ── NAVEGACIÓN ──
 const titles = {
-    dashboard:'Dashboard', slow:'Consultas Lentas', queries:'Consultas',
-    databases:'Bases de Datos', tables:'Tablas', users:'Usuarios Conectados',
-    resources:'Recursos del Servidor', alerts:'Alertas', audit:'Auditoría'
+    dashboard:'Dashboard', 
+    slow:'Consultas Lentas', 
+    
+    recent:'Consultas Recientes',  // NUEVO
+    databases:'Bases de Datos', 
+    tables:'Tablas', 
+    users:'Usuarios Conectados',
+    resources:'Recursos del Servidor', 
+    alerts:'Alertas', 
+    audit:'Auditoría'
 };
 
 window.go = function(p) {
@@ -40,16 +51,12 @@ window.go = function(p) {
     if(p==='dashboard') initDashboard();
     if(p==='resources') loadResourceCharts();
     if(p==='slow') loadSlowQueries();
-    if(p==='queries') loadQueries();
+    
     if(p==='audit') loadAudit();
+    if(p==='recent') initRecent();  // NUEVO
     
     document.getElementById('mc').scrollTop=0;
 };
-
-
-
-
-
 
 // ── WEBSOCKET PRINCIPAL ──
 function connectWS(){
@@ -57,13 +64,10 @@ function connectWS(){
     ws=new WebSocket(`${p}://${location.host}/ws/metrics`);
     
     ws.onopen=()=>{
-        // Si está conectado, OCULTAMOS el badge completamente
         const badge = document.getElementById('wsBadge');
         if(badge) badge.style.display = 'none';
-        
-        // El resto de la lógica del onopen sigue igual
         try {
-            const data = { mysql_status: { mysql_connected: true } }; // Simulación temporal hasta llegar el primer mensaje real
+            const data = { mysql_status: { mysql_connected: true } };
             updateSidebarStatus(true);
         } catch(x){}
     };
@@ -81,7 +85,6 @@ function connectWS(){
     };
     
     ws.onclose=()=>{
-        // Si se desconecta, MOSTRAMOS el badge con "OFF"
         const badge = document.getElementById('wsBadge');
         if(badge) {
             badge.style.display = '';
@@ -94,7 +97,6 @@ function connectWS(){
     
     ws.onerror=()=>ws.close();
 }
-
 
 // ── WEBSOCKET BINLOG (Tiempo Real) ──
 function connectBinlogWS(){
@@ -110,13 +112,10 @@ function connectBinlogWS(){
         try{
             const msg=JSON.parse(e.data);
             if(msg.type==='binlog_event'){
-                // Si existe la función de auditoría, llamarla
                 if(typeof window.handleBinlogEvent === 'function'){
                     window.handleBinlogEvent(msg.data);
                 }
-                // También actualizar la sección de auditoría si está activa
                 if(curPage === 'audit' && typeof window.loadAudit === 'function'){
-                    // Recargar auditoría cada 5 eventos para no saturar
                     if(Math.random() < 0.2) window.loadAudit();
                 }
             }
@@ -131,11 +130,7 @@ function connectBinlogWS(){
     blWs.onerror=()=>blWs.close();
 }
 
-// Variable global para el WebSocket de binlog
 let blWs = null;
-
-
-
 
 // ── ESTADO DEL BINLOG (Indicador Sidebar) ──
 async function checkBinlogIndicator(){
@@ -146,13 +141,13 @@ async function checkBinlogIndicator(){
         if(!dot) return;
         
         if(s.enabled){
-            dot.className = 'bl-pulse live'; // Verde: Leyendo eventos
+            dot.className = 'bl-pulse live';
             dot.title = 'Binlog activo y leyendo';
         } else if(s.error) {
-            dot.className = 'bl-pulse dead'; // Rojo: Error
+            dot.className = 'bl-pulse dead';
             dot.title = 'Error: ' + s.error;
         } else {
-            dot.className = 'bl-pulse wait'; // Amarillo: Intentando reconectar
+            dot.className = 'bl-pulse wait';
             dot.title = 'Binlog pendiente o reconectando...';
         }
     } catch(e) {
@@ -161,22 +156,22 @@ async function checkBinlogIndicator(){
     }
 }
 
-
-
-
 // ── INIT ──
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.nli').forEach(l=>l.addEventListener('click',()=>go(l.dataset.p)));
     document.getElementById('bhbtn').addEventListener('click',()=>{document.getElementById('sb').classList.toggle('open');document.getElementById('sov').classList.toggle('show')});
     document.getElementById('sov').addEventListener('click',()=>{document.getElementById('sb').classList.remove('open');document.getElementById('sov').classList.remove('show')});
     
-    // Conectar ambos WebSockets
     connectWS();
     connectBinlogWS();  
     
-    // Iniciar indicador del binlog
     checkBinlogIndicator();
     setInterval(checkBinlogIndicator, 30000);
+    
+    // Auto-refresh de consultas recientes cada 2 segundos cuando la página está activa
+    setInterval(() => {
+        if(curPage === 'recent') loadRecentQueries();
+    }, 2000);
     
     go('dashboard');
 });

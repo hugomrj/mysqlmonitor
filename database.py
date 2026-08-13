@@ -83,14 +83,17 @@ async def init_binlog_tables(db_path: str = "monitor.db"):
 
 
 
+
 async def init_slow_queries_table(db_path: str = "monitor.db"):
-    """Crea tabla para cachear consultas lentas."""
+    """Crea tabla para cachear consultas lentas.
+    MEJORADO: Incluye columna client_ip."""
     async with aiosqlite.connect(db_path) as db:
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS slow_queries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 start_time TEXT NOT NULL,
                 user_host TEXT,
+                client_ip TEXT DEFAULT 'unknown',
                 query_time REAL NOT NULL,
                 lock_time TEXT,
                 rows_sent INTEGER DEFAULT 0,
@@ -103,9 +106,20 @@ async def init_slow_queries_table(db_path: str = "monitor.db"):
             CREATE INDEX IF NOT EXISTS idx_sq_time ON slow_queries(start_time);
             CREATE INDEX IF NOT EXISTS idx_sq_db ON slow_queries(db);
             CREATE INDEX IF NOT EXISTS idx_sq_qt ON slow_queries(query_time);
+            CREATE INDEX IF NOT EXISTS idx_sq_ip ON slow_queries(client_ip);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_sq_hash ON slow_queries(sql_hash);
         """)
-        await db.commit()        
+        await db.commit()
+        
+        # MIGRACIÓN: Si la tabla ya existe sin la columna client_ip, agregarla
+        try:
+            await db.execute("ALTER TABLE slow_queries ADD COLUMN client_ip TEXT DEFAULT 'unknown'")
+            await db.commit()
+            logger.info("Columna client_ip agregada a slow_queries")
+        except Exception:
+            pass  # La columna ya existe
+
+
 
 
 async def init_queries_cache_table(db_path: str = "monitor.db"):

@@ -1,9 +1,11 @@
+#services/binlog_stream.py
 """
 Binlog Stream Service (OPTIMIZADO)
 ===================================
 Lee el binlog de MySQL 5.7 como esclavo silencioso usando python-mysql-replication.
 Optimizado para: bajo overhead, captura multi-BD, recuperación automática de posición.
 """
+import os
 import asyncio
 import json
 import logging
@@ -28,7 +30,7 @@ MAX_ROW_DATA_ROWS = 5
 MAX_STRING_LENGTH = 200
 
 # [OPTIMIZACIÓN 1] Server ID fijo para evitar conflictos de replicación
-SERVER_ID = 100
+SERVER_ID = (os.getpid() % 100000) + 1000  # Único por proceso
 
 
 def _get_replication_module():

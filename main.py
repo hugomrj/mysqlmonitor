@@ -1,3 +1,4 @@
+
 import asyncio
 import json
 import logging
@@ -19,8 +20,8 @@ from routers.slow import router as slow_router
 from routers.processlist import router as processlist_router
 from routers.alerts import router as alerts_router
 from routers.binlog import router as binlog_router
-from routers.queries import router as queries_router
 from routers.audit import router as audit_router
+from routers import slow_log_config, recent_queries
 
 from services.websocket import connected_clients as metrics_clients
 from services.binlog_stream import binlog_service
@@ -133,8 +134,22 @@ async def lifespan(app: FastAPI):
     cfg = await load_config()
     await create_pool(cfg.mysql)
 
+    # ✅ APLICAR CONFIGURACIÓN DE SLOW_LOG AL INICIO (en caliente)
+    from services.slow_log_config import apply_slow_log_config
+    result = await apply_slow_log_config(
+        threshold=cfg.slow_query_threshold,
+        enabled=cfg.slow_log_enabled,
+        log_no_indexes=cfg.log_queries_not_using_indexes,
+    )
+    logger.info(f"✅ Slow log aplicado: {result}")
+
     from services.metrics_loop import start as start_metrics_loop
     asyncio.create_task(start_metrics_loop())
+
+    # NUEVO: Iniciar servicio de consultas recientes
+    if cfg.recent_queries_enabled:
+        from services import recent_queries
+        await recent_queries.start()
 
     if cfg.binlog_enabled and cfg.mysql.password:
         mysql_dict = cfg.mysql.model_dump()
@@ -143,17 +158,24 @@ async def lifespan(app: FastAPI):
             logger.info("ℹ Binlog no pudo iniciar - configura contraseña en la UI")
     else:
         logger.info("Binlog pendiente - configura conexión en la UI")
-
         if not binlog_service.is_running:
             logger.info("ℹ Binlog deshabilitado - el resto del monitor funciona normal")
-   
 
     logger.info("MySQL Monitor listo")
     yield
 
     logger.info("Deteniendo...")
+    
+    # NUEVO: Detener servicio de consultas recientes
+    from services import recent_queries
+    await recent_queries.stop()
+    
     await binlog_service.stop()
     await close_pool()
+
+
+
+
 
 app = FastAPI(title="MySQL Monitor", lifespan=lifespan)
 app.add_middleware(WSBypass)
@@ -165,8 +187,11 @@ app.include_router(slow_router)
 app.include_router(processlist_router)
 app.include_router(alerts_router)
 app.include_router(binlog_router)
-app.include_router(queries_router)
 app.include_router(audit_router)
+
+app.include_router(slow_log_config.router)
+app.include_router(recent_queries.router)
+
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

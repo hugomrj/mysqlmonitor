@@ -8,17 +8,13 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/binlog.css">
-
-
 
 </head>
 <body>
 
 <div class="sov" id="sov"></div>
-
 
 <!-- ═══ SIDEBAR ═══ -->
 <aside class="sidebar" id="sb">
@@ -31,14 +27,12 @@
     <a class="nli active" data-p="dashboard"><i class="bi bi-grid-1x2-fill"></i>Dashboard</a>
     <a class="nli" data-p="resources"><i class="bi bi-cpu-fill"></i>Recursos del Servidor</a>
     
-    <div class="ngl mt-2">Consultas</div>    
-    <a class="nli" data-p="queries"><i class="bi bi-code-slash"></i>Consultas</a>
+    <div class="ngl mt-2">Consultas</div>        
+    <a class="nli" data-p="recent"><i class="bi bi-clock-history"></i>Recientes (Live)</a>
     <a class="nli" data-p="slow"><i class="bi bi-hourglass-split"></i>Consultas Lentas</a>
 
     <div class="ngl mt-2">Auditoría</div>
     <a class="nli" data-p="audit"><i class="bi bi-journal-text"></i>Auditoría <span class="bl-pulse wait" id="auditBlDot" style="margin-left:auto"></span></a>
-
-
 
     <div class="ngl mt-2">Esquema</div>
     <a class="nli" data-p="databases"><i class="bi bi-database-fill"></i>Bases de Datos</a>
@@ -57,20 +51,14 @@
 </aside>
 
 <!-- ═══ TOPBAR ═══ -->
-
 <header class="topbar">
   <div class="topbar-left">
     <button class="bh" id="bhbtn"><i class="bi bi-list"></i></button>
     <div class="ptitle" id="ptitle">Dashboard</div>
   </div>
-
-
   <div class="topbar-right">
-    
     <span class="ws-badge off" id="wsBadge">WS OFF</span>
     <span class="ws-badge off" id="blWsBadge" style="display:none">BINLOG OFF</span>
-
-
     <button class="tib" title="Configuración" onclick="showConfigModal()"><i class="bi bi-gear-fill"></i></button>
     <button class="tib" title="Refrescar" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i></button>
     <div class="avatar">DB</div>
@@ -78,9 +66,6 @@
 </header>
 
 <main class="mc" id="mc">
-
-
-
 
 <!-- ═══════════ DASHBOARD ═══════════ -->
 <section class="ps active" id="p-dashboard">
@@ -100,21 +85,13 @@
   </div>
 </section>
 
-
-
-
 <!-- ═══════════ CONSULTAS ═══════════ -->
 <section class="ps" id="p-queries">
-
-  <!-- Reemplaza todo el fb de p-queries por esto: -->
   <div class="fb">
     <div class="row g-3 align-items-end">
       <div class="col-md-2"><label>Usuario</label><select class="form-select" id="qUser"><option value="">Todos</option></select></div>
-      
       <div class="col-md-2"><label>Base de Datos</label><select class="form-select" id="qDb"><option value="">Todas</option></select></div>
-      
       <div class="col-md-2"><label>Tipo</label><select class="form-select" id="qType"><option value="SELECT" selected>Solo SELECT</option><option value="OTHER">Otros (SHOW, SET...)</option><option value="">Todos</option></select></div>
-      
       <div class="col-md-3"><label>Buscar en SQL</label><input type="text" class="form-control" id="qSearch" placeholder="Ej: bonificaciones_pedidos"></div>
       <div class="col-md-3 d-flex gap-2">
         <button class="bac flex-fill" onclick="loadQueries()"><i class="bi bi-funnel me-1"></i>Filtrar</button>
@@ -122,9 +99,6 @@
       </div>
     </div>
   </div>
-
-
-
   <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>#</th><th>Consulta SQL</th><th>Tiempo</th><th>Usuario</th><th>Base</th><th>Fecha</th><th>Operación</th><th>Acción</th></tr></thead><tbody id="queriesBody"><tr><td colspan="8" class="empty-state"><i class="bi bi-code-slash"></i><p>Cargando consultas...</p></td></tr></tbody></table></div>
   <div id="queriesPagination" class="d-flex justify-content-between align-items-center mt-3" style="display:none">
     <small class="text-muted" id="queriesInfo" style="font-size:12px"></small>
@@ -132,10 +106,99 @@
   </div>
 </section>
 
+<!-- ═══════════ CONSULTAS RECIENTES ═══════════ -->
+<section class="ps" id="p-recent">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <span class="stag ps">performance_schema</span>
+        <span class="text-secondary ms-2" style="font-size:12px">Buffer en memoria • Se actualiza cada 2s</span>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="boc btn-sm" onclick="clearRecentQueries()" title="Limpiar buffer">
+            <i class="bi bi-trash me-1"></i>Limpiar
+        </button>
+        <button class="boc btn-sm" onclick="loadRecentQueries()">
+            <i class="bi bi-arrow-clockwise me-1"></i>Refrescar
+        </button>
+    </div>
+  </div>
+  
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="sc ca">
+        <div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-collection"></i></div>
+        <div class="cv" id="recentTotal" style="color:var(--accent)">0</div>
+        <div class="cl">Total en buffer</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="sc ci2">
+        <div class="ci" style="background:rgba(56,189,248,.12);color:var(--info)"><i class="bi bi-speedometer"></i></div>
+        <div class="cv" id="recentAvg" style="color:var(--info)">0</div>
+        <div class="cl">Tiempo promedio (ms)</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="sc cd">
+        <div class="ci" style="background:rgba(239,68,68,.12);color:var(--danger)"><i class="bi bi-arrow-up-right"></i></div>
+        <div class="cv" id="recentMax" style="color:var(--danger)">0</div>
+        <div class="cl">Tiempo máximo (ms)</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="sc" style="--after-bg:var(--success)">
+        <div class="ci" style="background:rgba(34,197,94,.12);color:var(--success)"><i class="bi bi-arrow-down-right"></i></div>
+        <div class="cv" id="recentMin" style="color:var(--success)">0</div>
+        <div class="cl">Tiempo mínimo (ms)</div>
+      </div>
+    </div>
+  </div>
 
+  <div class="fb">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label>Tiempo mínimo (ms)</label>
+        <input type="number" class="form-control" id="recentMinTime" value="0" min="0">
+      </div>
+      <div class="col-md-3">
+        <label>Base de datos</label>
+        <input type="text" class="form-control" id="recentDb" placeholder="Todas">
+      </div>
+      <div class="col-md-3">
+        <label>Usuario</label>
+        <input type="text" class="form-control" id="recentUser" placeholder="Todos">
+      </div>
+      <div class="col-md-3">
+        <button class="bac w-100" onclick="loadRecentQueries()">
+          <i class="bi bi-funnel me-1"></i>Filtrar
+        </button>
+      </div>
+    </div>
+  </div>
 
-
-
+  <div class="tr">
+    <table class="table td table-hover mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>SQL</th>
+          <th>Tiempo (ms)</th>
+          <th>IP Cliente</th>
+          <th>Usuario</th>
+          <th>BD</th>
+          <th>Filas Exam.</th>
+          <th>Filas Env.</th>
+        </tr>
+      </thead>
+      <tbody id="recentBody">
+        <tr><td colspan="8" class="empty-state">
+          <i class="bi bi-clock-history"></i>
+          <p>Cargando consultas recientes...</p>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
 <!-- ═══════════ CONSULTAS LENTAS ═══════════ -->
 <section class="ps" id="p-slow">
@@ -145,33 +208,30 @@
   </div>
   <div class="fb">
     <div class="row g-3 align-items-end">
-      <div class="col-md-3"><label>Tiempo mínimo (s)</label><input type="number" class="form-control" id="slowMinTime" value="2"></div>
+      <div class="col-md-3">
+        <label>Tiempo mínimo (s)</label>
+        <input type="number" class="form-control" id="slowMinTime" value="3" min="0" step="1">
+      </div>
       <div class="col-md-3"><label>Base de datos</label><select class="form-select" id="slowDb"><option value="">Todas</option></select></div>
       <div class="col-md-3"><label>Fecha desde</label><input type="date" class="form-control" id="slowDate"></div>
       <div class="col-md-3"><button class="bac w-100" onclick="loadSlowQueries()"><i class="bi bi-funnel me-1"></i>Filtrar</button></div>
     </div>
   </div>
   <div class="tr"><table class="table td table-hover mb-0" id="tSlow">
-    
-    <thead><tr><th>#</th><th>Consulta SQL</th><th>Tiempo</th><th>Usuario</th><th>Rows Examined</th><th>Rows Sent</th><th>Base</th><th>Timestamp</th><th>Acción</th></tr></thead>
-    
-    <tbody id="slowBody"><tr><td colspan="9" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Cargando consultas lentas...</p></td></tr></tbody></table>
+    <thead><tr><th>#</th><th>Consulta SQL</th><th>Tiempo</th><th>Usuario</th><th>IP</th><th>Rows Examined</th><th>Rows Sent</th><th>Base</th><th>Timestamp</th><th>Acción</th></tr></thead>
+    <tbody id="slowBody"><tr><td colspan="10" class="empty-state"><i class="bi bi-hourglass-split"></i><p>Cargando consultas lentas...</p></td></tr></tbody></table>
+  </div>
 </section>
-
-
 
 
 <!-- ═══════════ AUDITORÍA ═══════════ -->
 <section class="ps" id="p-audit">
-  <!-- Tarjetas resumen -->
   <div class="row g-3 mb-4">
     <div class="col-xl col-md-3 col-6"><div class="sc ca"><div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-collection-fill"></i></div><div class="cv" id="aud_total" style="color:var(--accent)">0</div><div class="cl">Total Eventos</div></div></div>
     <div class="col-xl col-md-3 col-6"><div class="sc" style="--after-bg:var(--success)"><div class="ci" style="background:rgba(34,197,94,.12);color:var(--success)"><i class="bi bi-plus-circle-fill"></i></div><div class="cv" id="aud_ins" style="color:var(--success)">0</div><div class="cl">INSERT</div></div></div>
     <div class="col-xl col-md-3 col-6"><div class="sc cw"><div class="ci" style="background:rgba(245,158,11,.12);color:var(--warning)"><i class="bi bi-pencil-fill"></i></div><div class="cv" id="aud_upd" style="color:var(--warning)">0</div><div class="cl">UPDATE</div></div></div>
     <div class="col-xl col-md-3 col-6"><div class="sc cd"><div class="ci" style="background:rgba(239,68,68,.12);color:var(--danger)"><i class="bi bi-trash3-fill"></i></div><div class="cv" id="aud_del" style="color:var(--danger)">0</div><div class="cl">DELETE</div></div></div>
   </div>
-
-  <!-- Filtros -->
   <div class="fb">
     <div class="row g-3 align-items-end">
       <div class="col-md-2"><label>Operación</label><select class="form-select" id="audOp"><option value="">Todas</option><option>INSERT</option><option>UPDATE</option><option>DELETE</option></select></div>
@@ -185,23 +245,12 @@
       </div>
     </div>
   </div>
-
-  <!-- Tabla -->
   <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>#</th><th>Operación</th><th>Tabla</th><th>Datos</th><th>Filas</th><th>Fecha</th><th>Acción</th></tr></thead><tbody id="auditBody"><tr><td colspan="7" class="empty-state"><i class="bi bi-journal-text"></i><p>Cargando auditoría...</p></td></tr></tbody></table></div>
-
-  <!-- Paginación -->
   <div id="auditPagination" class="d-flex justify-content-between align-items-center mt-3" style="display:none">
     <small class="text-muted" id="auditInfo" style="font-size:12px"></small>
     <nav><ul class="pagination pagination-sm mb-0" id="auditPages"></ul></nav>
   </div>
 </section>
-
-
-
-
-
-
-
 
 <!-- ═══════════ BASES DE DATOS ═══════════ -->
 <section class="ps" id="p-databases">
@@ -224,14 +273,8 @@
   <div class="tr"><table class="table td table-hover mb-0"><thead><tr><th>Thread ID</th><th>Usuario</th><th>Host</th><th>Base</th><th>Comando</th><th>Tiempo</th><th>Estado</th><th>Consulta Actual</th></tr></thead><tbody id="usersBody"><tr><td colspan="8" class="empty-state"><i class="bi bi-people"></i><p>Cargando sesiones...</p></td></tr></tbody></table></div>
 </section>
 
-
-
-
-
-
 <!-- ═══════════ RECURSOS ═══════════ -->
 <section class="ps" id="p-resources">
-  <!-- Fila 1: Gauges semicirculares -->
   <div class="row g-3 mb-4">
     <div class="col-lg-4 col-md-6">
       <div class="cc" style="height:220px">
@@ -261,8 +304,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Fila 2: Tarjetas de detalle -->
   <div class="row g-3 mb-4">
     <div class="col-md-4">
       <div class="rs-card">
@@ -292,8 +333,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Fila 3: InnoDB + Threads -->
   <div class="row g-3 mb-4">
     <div class="col-md-6">
       <div class="cc" style="height:auto;min-height:200px">
@@ -308,8 +347,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Fila 4: Charts barras horizontales -->
   <div class="row g-3">
     <div class="col-lg-6">
       <div class="cc" style="height:300px">
@@ -326,10 +363,6 @@
   </div>
 </section>
 
-
-
-
-
 <!-- ═══════════ ALERTAS ═══════════ -->
 <section class="ps" id="p-alerts">
   <div class="mb-3"><span class="stag py">Evaluación de umbrales</span></div>
@@ -338,49 +371,158 @@
 
 </main>
 
-<!-- ═══ MODAL CONFIGURACIÓN ═══ -->
+<!-- ═══ MODAL CONFIGURACIÓN CON PESTAÑAS ═══ -->
 <div class="modal fade" id="configModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title fd"><i class="bi bi-gear-fill me-2" style="color:var(--accent)"></i>Configurar conexión a MySQL</h5></div>
-      <div class="modal-body">
-        <div class="mb-3"><label class="cfg-label">Host</label><input type="text" class="cfg-input" id="cfgHost" value="localhost"></div>
-        <div class="row g-3 mb-3">
-          <div class="col-6"><label class="cfg-label">Puerto</label><input type="number" class="cfg-input" id="cfgPort" value="3306"></div>
-          <div class="col-6"><label class="cfg-label">Intervalo (seg)</label><input type="number" class="cfg-input" id="cfgInterval" value="2" min="0.5" step="0.5"></div>
-        </div>
-        <div class="mb-3"><label class="cfg-label">Usuario</label><input type="text" class="cfg-input" id="cfgUser" value="root"></div>
-        <div class="mb-3"><label class="cfg-label">Contraseña</label><input type="password" class="cfg-input" id="cfgPass" placeholder="Dejar vacío si no tiene"></div>
-        <div class="cfg-error" id="cfgError"></div>
-        <div id="cfgOk" class="mt-2" style="display:none"><div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--success)"><i class="bi bi-check-circle-fill me-2"></i>Conexión exitosa</div></div>
+      <div class="modal-header">
+        <h5 class="modal-title fd">
+          <i class="bi bi-gear-fill me-2" style="color:var(--accent)"></i>Configuración
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+      
+      <div class="modal-body">
+        <!-- Pestañas -->
+        <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="conexion-tab" data-bs-toggle="tab" data-bs-target="#conexion-pane" type="button" role="tab">
+              <i class="bi bi-plug me-1"></i>Conexión MySQL
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="consultas-tab" data-bs-toggle="tab" data-bs-target="#consultas-pane" type="button" role="tab">
+              <i class="bi bi-speedometer2 me-1"></i>Consultas Lentas
+            </button>
+          </li>
+        </ul>
+
+        <!-- Contenido de las pestañas -->
+        <div class="tab-content" id="configTabsContent">
+          
+          <!-- PESTAÑA 1: Conexión MySQL -->
+          <div class="tab-pane fade show active" id="conexion-pane" role="tabpanel">
+            <div class="mb-3">
+              <label class="cfg-label">Host</label>
+              <input type="text" class="cfg-input" id="cfgHost" value="localhost">
+            </div>
+            
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="cfg-label">Puerto</label>
+                <input type="number" class="cfg-input" id="cfgPort" value="3306">
+              </div>
+              <div class="col-6">
+                <label class="cfg-label">Intervalo de actualización (seg)</label>
+                <input type="number" class="cfg-input" id="cfgInterval" value="2" min="0.5" step="0.5">
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="cfg-label">Usuario</label>
+              <input type="text" class="cfg-input" id="cfgUser" value="root">
+            </div>
+            
+            <div class="mb-4">
+              <label class="cfg-label">Contraseña</label>
+              <input type="password" class="cfg-input" id="cfgPass" placeholder="Dejar vacío si no tiene">
+            </div>
+            
+            <button class="bac w-100" onclick="saveConfig()">
+              <span id="cfgSaveText"><i class="bi bi-plug me-1"></i>Guardar y Conectar</span>
+              <span id="cfgSaveSpinner" style="display:none">
+                <span class="spinner-border spinner-border-sm me-1" role="status"></span>Conectando...
+              </span>
+            </button>
+            
+            <div class="cfg-error mt-3" id="cfgError"></div>
+            <div id="cfgOk" class="mt-3" style="display:none">
+              <div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--success)">
+                <i class="bi bi-check-circle-fill me-2"></i>Conexión exitosa
+              </div>
+            </div>
+          </div>
+
+
+
+
+
+          <!-- PESTAÑA 2: Consultas Lentas -->          
+          <div class="tab-pane fade" id="consultas-pane" role="tabpanel">
+            <div class="alert alert-info mb-3" style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3);color:var(--info);font-size:13px">
+              <i class="bi bi-info-circle me-2"></i>
+              Las consultas que superen el umbral se registrarán automáticamente en <code>mysql.slow_log</code>.
+            </div>
+            
+            <div class="mb-3">
+              <label class="cfg-label">Umbral de tiempo (segundos)</label>
+
+              <input type="number" class="cfg-input" id="cfgSlowThreshold" 
+                    value="3" min="1" max="60" step="1">
+              <small class="text-muted d-block mt-1">
+                Solo se registrarán consultas que tarden más de este tiempo (mínimo 1s)
+              </small>
+              
+            </div>
+            
+            <div class="mb-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="cfgSlowEnabled" checked>
+                <label class="form-check-label" for="cfgSlowEnabled">
+                  <strong>Registro activo</strong>
+                  <small class="text-muted d-block">Desactivar solo si hay problemas de rendimiento</small>
+                </label>
+              </div>
+            </div>
+            
+            <button class="bac w-100" onclick="saveSlowLogConfig()">
+              <i class="bi bi-save me-1"></i>Aplicar configuración
+            </button>
+          </div>
+
+
+
+        </div>
+      </div>
+      
       <div class="modal-footer">
-        <button class="boc" onclick="closeConfigModal()">Cancelar</button>
-        <button class="bac" id="cfgSaveBtn" onclick="saveConfig()"><span id="cfgSaveText"><i class="bi bi-plug me-1"></i>Guardar y Conectar</span><span id="cfgSaveSpinner" style="display:none"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Conectando...</span></button>
+        <button class="boc" onclick="closeConfigModal()">Cerrar</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- ═══ MODAL DETALLE ═══ -->
-<div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title fd" id="mTitle">Detalle</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="mBody"></div><div class="modal-footer"><button type="button" class="boc" data-bs-dismiss="modal">Cerrar</button><button type="button" class="bac" id="copyBtn"><i class="bi bi-clipboard me-1"></i>Copiar SQL</button></div></div></div></div>
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fd" id="mTitle">Detalle</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="mBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="boc" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="bac" id="copyBtn"><i class="bi bi-clipboard me-1"></i>Copiar SQL</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══ TOAST ═══ -->
-<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100"><div id="toastEl" class="toast align-items-center border-0 toast-c" role="alert"><div class="d-flex"><div class="toast-body" id="toastBd" style="font-size:12.5px;color:var(--text-primary)"></div><button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" style="filter:invert(1) brightness(200%)"></button></div></div></div>
-
-
-
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+  <div id="toastEl" class="toast align-items-center border-0 toast-c" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toastBd" style="font-size:12.5px;color:var(--text-primary)"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" style="filter:invert(1) brightness(200%)"></button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-
-<!-- El config modal necesita funciones globales -->
-<script src="/static/js/config.js?v=2"></script>
-
-<!-- El cerebro de la app -->
-<script type="module" src="/static/js/app.js?v=3"></script>
-
-
+<script src="/static/js/config.js?v=3"></script>
+<script type="module" src="/static/js/app.js?v=4"></script>
 
 </body>
 </html>

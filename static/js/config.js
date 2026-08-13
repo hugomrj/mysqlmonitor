@@ -1,3 +1,4 @@
+// static/js/config.js
 /* ═══════════════════════════════════════
    config.js — Modal de configuración
    Script NORMAL (no module) para que
@@ -11,6 +12,7 @@ function showConfigModal() {
     fetch('/api/config')
         .then(r => r.json())
         .then(cfg => {
+            // Conexión MySQL
             if (cfg.mysql) {
                 document.getElementById('cfgHost').value = cfg.mysql.host || 'localhost';
                 document.getElementById('cfgPort').value = cfg.mysql.port || 3306;
@@ -20,9 +22,17 @@ function showConfigModal() {
             if (cfg.refresh_interval) {
                 document.getElementById('cfgInterval').value = cfg.refresh_interval;
             }
+            
+            // Consultas Lentas
+            if (cfg.slow_query_threshold !== undefined) {
+                document.getElementById('cfgSlowThreshold').value = cfg.slow_query_threshold;
+            }
+            if (cfg.slow_log_enabled !== undefined) {
+                document.getElementById('cfgSlowEnabled').checked = cfg.slow_log_enabled;
+            }
         })
         .catch(() => {
-            // Si falla, dejar los valores por defecto que ya tienen los inputs
+            // Si falla, dejar los valores por defecto
         });
 
     // Ocultar mensajes anteriores
@@ -43,9 +53,6 @@ function closeConfigModal() {
         configModalInstance.hide();
     }
 }
-
-
-
 
 async function saveConfig() {
     const errEl = document.getElementById('cfgError');
@@ -88,7 +95,7 @@ async function saveConfig() {
         try {
             await fetch('/api/binlog/restart', { method: 'POST' });
         } catch (e) {
-            // Si falla no es crítico, el resto funciona
+            // Si falla no es crítico
         }
 
         setTimeout(() => {
@@ -104,4 +111,64 @@ async function saveConfig() {
     }
 }
 
+/* ═══════════════════════════════════════
+   Configuración de Consultas Lentas
+   (simplificada: solo umbral + switch)
+   ═══════════════════════════════════════ */
 
+async function saveSlowLogConfig() {
+    let threshold = parseFloat(document.getElementById('cfgSlowThreshold').value);
+    
+    // ═══ VALIDACIÓN EN EL FRONTEND ═══
+    if (isNaN(threshold) || threshold < 1) {
+        showToast('❌ El umbral debe ser >= 1 segundo');
+        document.getElementById('cfgSlowThreshold').value = 1;
+        return;
+    }
+    if (threshold > 60) {
+        showToast('❌ El umbral debe ser <= 60 segundos');
+        document.getElementById('cfgSlowThreshold').value = 60;
+        return;
+    }
+    
+    const config = {
+        threshold: threshold,
+        enabled: document.getElementById('cfgSlowEnabled').checked,
+        log_no_indexes: true,
+    };
+    
+    try {
+        const response = await fetch('/api/query-config/slow-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config),
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast(`✅ Umbral actualizado a ${result.config.threshold}s`);
+        } else {
+            showToast(`❌ Error: ${result.error || 'Error desconocido'}`);
+        }
+    } catch (error) {
+        showToast(`❌ Error de red: ${error.message}`);
+    }
+}
+
+
+
+// Función auxiliar para mostrar toast (si no está disponible globalmente)
+if (typeof showToast === 'undefined') {
+    function showToast(message) {
+        const toastBody = document.getElementById('toastBd');
+        const toastEl = document.getElementById('toastEl');
+        if (toastBody && toastEl) {
+            toastBody.innerHTML = '<i class="bi bi-info-circle me-2"></i>' + message;
+            const toast = new bootstrap.Toast(toastEl);
+            toast.show();
+        } else {
+            alert(message);
+        }
+    }
+}
