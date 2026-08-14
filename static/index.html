@@ -239,7 +239,12 @@
       <div class="col-md-2"><label>Desde</label><input type="date" class="form-control" id="audFrom"></div>
       <div class="col-md-2"><label>Hasta</label><input type="date" class="form-control" id="audTo"></div>
       <div class="col-md-2 d-flex gap-2">
-        <button class="bac flex-fill" onclick="loadAudit()"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+        
+
+        <button class="bac flex-fill" onclick="applyAuditFilters()">
+            <i class="bi bi-funnel me-1"></i>Filtrar
+        </button>
+
         <button class="boc" onclick="clearAuditFilters()" title="Limpiar"><i class="bi bi-x-lg"></i></button>
       </div>
     </div>

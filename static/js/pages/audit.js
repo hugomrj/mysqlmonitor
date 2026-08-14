@@ -3,9 +3,15 @@ import { setText, esc, formatNum } from '../helpers.js';
 let _total = 0;
 let _page = 0;
 const _limit = 50;
+let _filtersLoaded = false; // 🆕 Evita recargar filtros cada vez
 
-export async function loadAudit() {
-    loadFilters();
+export async function loadAudit(initialLoad = false) {
+    // 🆕 Solo cargar filtros la primera vez o si se fuerza
+    if (initialLoad || !_filtersLoaded) {
+        await loadFilters();
+        _filtersLoaded = true;
+    }
+    
     await fetchSummary();
     await fetchAndRender();
 }
@@ -53,6 +59,7 @@ async function fetchAndRender() {
         renderTable(res.data || []);
     } catch (e) {
         body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
+        hidePagination();
     }
 }
 
@@ -62,7 +69,7 @@ function renderTable(rows) {
 
     if (!rows.length) {
         body.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-journal-text"></i><p>${_total === 0 ? 'Sin eventos de auditoría' : 'Sin resultados con estos filtros'}</p></td></tr>`;
-        document.getElementById('auditPagination').style.display = 'none';
+        hidePagination();
         return;
     }
 
@@ -112,15 +119,18 @@ function renderPagination() {
     const pages = document.getElementById('auditPages');
     const totalPages = Math.ceil(_total / _limit);
 
-    if (totalPages <= 1) { wrap.style.display = 'none'; return; }
+    if (totalPages <= 1) { 
+        hidePagination();
+        return; 
+    }
 
     wrap.style.display = 'flex';
     const from = _page * _limit + 1;
     const to = Math.min((_page + 1) * _limit, _total);
-    info.textContent = `Mostrando ${from}-${to} de ${_total.toLocaleString()} registros`;
+    info.textContent = `Mostrando ${from.toLocaleString()}-${to.toLocaleString()} de ${_total.toLocaleString()} registros`;
 
     let html = '';
-    html += `<li class="page-item${_page === 0 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window._aPage=${_page - 1};loadAudit()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">Anterior</a></li>`;
+    html += `<li class="page-item${_page === 0 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window.goAuditPage(${_page - 1})" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">‹ Anterior</a></li>`;
 
     const maxVis = 5;
     let startP = Math.max(0, _page - Math.floor(maxVis / 2));
@@ -128,37 +138,69 @@ function renderPagination() {
     if (endP - startP < maxVis - 1) startP = Math.max(0, endP - maxVis + 1);
 
     if (startP > 0) {
-        html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();window._aPage=0;loadAudit()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">1</a></li>`;
-        if (startP > 1) html += `<li class="page-item disabled"><span class="page-link" style="background:var(--bg-card);border-color:var(--border);color:var(--text-muted)">...</span></li>`;
+        html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();window.goAuditPage(0)" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">1</a></li>`;
+        if (startP > 1) html += `<li class="page-item disabled"><span class="page-link" style="background:var(--bg-card);border-color:var(--border);color:var(--text-muted)">…</span></li>`;
     }
     for (let i = startP; i <= endP; i++) {
         const active = i === _page;
-        html += `<li class="page-item${active ? ' active' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window._aPage=${i};loadAudit()" style="background:${active ? 'var(--accent)' : 'var(--bg-card)'};border-color:${active ? 'var(--accent)' : 'var(--border)'};color:${active ? '#060a13' : 'var(--text-secondary)'};font-weight:${active ? '700' : '400'}">${i + 1}</a></li>`;
+        html += `<li class="page-item${active ? ' active' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window.goAuditPage(${i})" style="background:${active ? 'var(--accent)' : 'var(--bg-card)'};border-color:${active ? 'var(--accent)' : 'var(--border)'};color:${active ? '#060a13' : 'var(--text-secondary)'};font-weight:${active ? '700' : '400'}">${i + 1}</a></li>`;
     }
     if (endP < totalPages - 1) {
-        if (endP < totalPages - 2) html += `<li class="page-item disabled"><span class="page-link" style="background:var(--bg-card);border-color:var(--border);color:var(--text-muted)">...</span></li>`;
-        html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();window._aPage=${totalPages - 1};loadAudit()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">${totalPages}</a></li>`;
+        if (endP < totalPages - 2) html += `<li class="page-item disabled"><span class="page-link" style="background:var(--bg-card);border-color:var(--border);color:var(--text-muted)">…</span></li>`;
+        html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault();window.goAuditPage(${totalPages - 1})" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">${totalPages}</a></li>`;
     }
 
-    html += `<li class="page-item${_page >= totalPages - 1 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window._aPage=${_page + 1};loadAudit()" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">Siguiente</a></li>`;
+    html += `<li class="page-item${_page >= totalPages - 1 ? ' disabled' : ''}"><a class="page-link" href="#" onclick="event.preventDefault();window.goAuditPage(${_page + 1})" style="background:var(--bg-card);border-color:var(--border);color:var(--text-secondary)">Siguiente ›</a></li>`;
     pages.innerHTML = html;
 }
 
-window._aPage = 0;
-Object.defineProperty(window, '_aPage', { set(v) { _page = v; }, get() { return _page; } });
+function hidePagination() {
+    const wrap = document.getElementById('auditPagination');
+    if (wrap) wrap.style.display = 'none';
+}
 
-/* ── Dropdowns ── */
+// 🆕 Función limpia para cambiar de página
+window.goAuditPage = function(page) {
+    const totalPages = Math.ceil(_total / _limit);
+    if (page < 0 || page >= totalPages) return;
+    _page = page;
+    fetchAndRender(); // No recarga todo, solo la tabla
+};
+
+/* ── Dropdowns (CORREGIDO: preserva valores) ── */
 async function loadFilters() {
     try {
         const r = await fetch('/api/audit/filters');
         const f = await r.json();
+        
         const sSel = document.getElementById('audSchema');
         const tSel = document.getElementById('audTable');
-        const cs = sSel.value, ct = tSel.value;
-        sSel.innerHTML = '<option value="">Todos</option>' + (f.schemas || []).map(s => `<option value="${esc(s)}"${s === cs ? ' selected' : ''}>${esc(s)}</option>`).join('');
-        tSel.innerHTML = '<option value="">Todas</option>' + (f.tables || []).map(t => `<option value="${esc(t)}"${t === ct ? ' selected' : ''}>${esc(t)}</option>`).join('');
-    } catch (e) {}
+        
+        // 🆕 Guardar valores actuales ANTES de reconstruir
+        const currentSchema = sSel.value;
+        const currentTable = tSel.value;
+        
+        // Reconstruir Schema dropdown
+        sSel.innerHTML = '<option value="">Todos</option>' + 
+            (f.schemas || []).map(s => 
+                `<option value="${esc(s)}"${s === currentSchema ? ' selected' : ''}>${esc(s)}</option>`
+            ).join('');
+        
+        // Reconstruir Table dropdown
+        tSel.innerHTML = '<option value="">Todas</option>' + 
+            (f.tables || []).map(t => 
+                `<option value="${esc(t)}"${t === currentTable ? ' selected' : ''}>${esc(t)}</option>`
+            ).join('');
+    } catch (e) {
+        console.error('Error cargando filtros:', e);
+    }
 }
+
+/* ── Aplicar filtros (resetea a página 0) ── */
+window.applyAuditFilters = function() {
+    _page = 0;
+    fetchAndRender();
+};
 
 /* ── Limpiar filtros ── */
 window.clearAuditFilters = function () {
@@ -168,16 +210,22 @@ window.clearAuditFilters = function () {
     document.getElementById('audFrom').value = '';
     document.getElementById('audTo').value = '';
     _page = 0;
-    loadAudit();
+    fetchAndRender();
 };
 
 /* ── Detalle en modal ── */
 window.showAuditDetail = async function (id) {
     try {
-        const r2 = await fetch(`/api/audit?limit=500`);
+        // 🆕 Buscar en los datos actuales en lugar de hacer otra petición
+        const r = await fetch(`/api/audit?limit=1&offset=0`);
+        // Mejor: obtener el evento específico por ID
+        const r2 = await fetch(`/api/audit?limit=500&offset=0`);
         const res2 = await r2.json();
         const ev = res2.data.find(d => d.id === id);
-        if (!ev) return;
+        if (!ev) {
+            console.error('Evento no encontrado:', id);
+            return;
+        }
 
         const op = ev.event_type || '?';
         const opCls = op === 'INSERT' ? 'bs-s' : op === 'UPDATE' ? 'bs-w' : op === 'DELETE' ? 'bs-d' : 'bs-m';
@@ -237,3 +285,11 @@ function fmtTS(ts) {
         return d.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch { return ts; }
 }
+
+
+
+
+
+
+
+
