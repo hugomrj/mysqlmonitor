@@ -1,3 +1,4 @@
+//static/js/pages/slow.js
 import { esc, formatNum } from '../helpers.js';
 
 let _lastSlowRows = [];
@@ -25,11 +26,48 @@ async function fetchAndRender() {
     try {
         const r = await fetch('/api/slow-queries?' + params);
         const res = await r.json();
+        
+        // 🆕 VERIFICAR ERROR DE PERMISOS
+        if (res.permission_error) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="10" class="empty-state">
+                        <div style="padding:20px;">
+                            <i class="bi bi-shield-x" style="font-size:40px;color:var(--warning);display:block;margin-bottom:12px"></i>
+                            <p style="font-size:14px;color:var(--warning);margin-bottom:8px;font-weight:600">
+                                Sin acceso a consultas
+                            </p>
+                            <p style="font-size:12.5px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.5">
+                                ${esc(res.permission_error)}
+                            </p>
+                        </div>
+                    </td>
+                </tr>`;
+            return;
+        }
+        
         renderTable(res.data || []);
     } catch (e) {
         console.error('Error cargando slow queries:', e);
         body.innerHTML = `<tr><td colspan="10" class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error al cargar</p></td></tr>`;
     }
+}
+
+// 🆕 NUEVA FUNCIÓN: Formatea el tiempo con decimales inteligentes
+function formatTime(seconds) {
+    if (seconds === null || seconds === undefined) return { value: '—', unit: '', color: 'var(--text-primary)' };
+    
+    const s = parseFloat(seconds);
+    
+    // Colorear según duración
+    const color = s >= 10 ? 'var(--danger)' : s >= 5 ? 'var(--warning)' : 'var(--text-primary)';
+    
+    // Mostrar en segundos con 3 decimales (siempre)
+    return {
+        value: s.toFixed(3),
+        unit: 's',
+        color: color
+    };
 }
 
 function renderTable(rows) {
@@ -43,18 +81,20 @@ function renderTable(rows) {
 
     body.innerHTML = rows.map((q, i) => {
         const idx = i + 1;
-        const { user, host } = parseUserHost(q.user_host);
-        const ip = q.client_ip || host || '—';
         
-        const ms = (q.query_time * 1000).toFixed(0);
-        const timeClr = q.query_time >= 10 ? 'var(--danger)' : q.query_time >= 5 ? 'var(--warning)' : 'var(--text-primary)';
+        // ✅ USAR CAMPOS DIRECTOS: username y client_ip
+        const user = q.username || '—';
+        const ip = q.client_ip || '—';
+        
+        // 🆕 USAR formatTime en lugar de toFixed(0)
+        const timeInfo = formatTime(q.query_time);
 
         const ts = fmtTS(q.start_time);
 
         return `<tr>
             <td class="text-secondary" style="font-size:12px;white-space:nowrap">${idx}</td>
             <td><code class="sql-snippet">${esc(truncateSQL(q.sql_text))}</code></td>
-            <td><span style="color:${timeClr};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${ms} ms</span></td>
+            <td><span style="color:${timeInfo.color};font-weight:700;font-family:'Space Grotesk',monospace;font-size:13px">${timeInfo.value} ${timeInfo.unit}</span></td>
             <td style="font-size:12.5px">${esc(user)}</td>
             <td style="font-size:12px"><code>${esc(ip)}</code></td>
             <td class="fd" style="font-weight:600">${formatNum(q.rows_examined || 0)}</td>
@@ -72,18 +112,20 @@ window.showSlowDetail = function (index) {
     if (!q) return;
 
     const idx = index + 1;
-    const { user, host } = parseUserHost(q.user_host);
-    const ip = q.client_ip || host || '—';
-    const ms = (q.query_time * 1000).toFixed(0);
-    const lockMs = q.lock_time ? (q.lock_time * 1000).toFixed(2) : '—';
     
-    const timeClr = q.query_time >= 10 ? 'var(--danger)' : q.query_time >= 5 ? 'var(--warning)' : 'var(--text-primary)';
+    // ✅ USAR CAMPOS DIRECTOS: username y client_ip
+    const user = q.username || '—';
+    const ip = q.client_ip || '—';
+    
+    // 🆕 USAR formatTime también en el modal
+    const timeInfo = formatTime(q.query_time);
+    const lockMs = q.lock_time ? (q.lock_time * 1000).toFixed(2) : '—';
 
     document.getElementById('mTitle').innerHTML = `<i class="bi bi-hourglass-split me-2" style="color:var(--warning)"></i>Consulta Lenta #${idx}`;
     document.getElementById('mBody').innerHTML = `
         <div class="row g-3 mb-3">
             <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Usuario</small><span class="fd" style="font-weight:700;font-size:18px">${esc(user)}</span></div>
-            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Tiempo Total</small><span style="font-size:20px;font-weight:800;color:${timeClr};font-family:'Space Grotesk',monospace">${ms} ms</span></div>
+            <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Tiempo Total</small><span style="font-size:20px;font-weight:800;color:${timeInfo.color};font-family:'Space Grotesk',monospace">${timeInfo.value} ${timeInfo.unit}</span></div>
         </div>
         <div class="row g-3 mb-3">
             <div class="col-6"><small style="font-size:11px;text-transform:uppercase;font-weight:600;color:var(--text-muted);display:block">Base de Datos</small><code style="font-size:15px;color:var(--accent)">${esc(q.db || '—')}</code></div>
@@ -150,6 +192,7 @@ export async function clearSlowHistory() {
 
 /* ── HELPERS ── */
 function parseUserHost(uh) {
+    // Legacy: mantener por compatibilidad pero ya no se usa
     if (!uh) return { user: '—', host: '—' };
     const um = uh.match(/^(\w+)/);
     const im = uh.match(/\[([^\]]+)\]/);

@@ -27,9 +27,59 @@ source venv/bin/activate
 cd test
 
 # Generar todos los tipos de eventos cada 2 segundos
-python generate_events.py --host 192.168.204.27 --user root --interval 2.0
+python generate_events.py --host 192.168.204.27 --user root --interval 5.0
 
 # O solo ciertos tipos de eventos
 python generate_events.py --host 192.168.204.27 --user root --operations insert_usuario update_usuario --interval 1.5
 
 # Presiona Ctrl+C para detener
+
+
+
+
+
+
+
+
+seelct para consultas
+
+                    SELECT 
+                        t.PROCESSLIST_HOST AS client_host,
+                        t.PROCESSLIST_USER AS username,
+                        e.SQL_TEXT,
+                        e.CURRENT_SCHEMA AS database_name,
+                        ROUND(e.TIMER_WAIT / 1000000000, 2) AS query_time_ms,
+                        e.ROWS_EXAMINED,
+                        e.ROWS_SENT,
+                        e.DIGEST_TEXT
+                    FROM performance_schema.events_statements_history_long e
+                    JOIN performance_schema.threads t ON e.THREAD_ID = t.THREAD_ID
+                    WHERE e.SQL_TEXT IS NOT NULL
+                      
+                      -- ═══ TU FILTRO: Solo SELECTs reales ═══
+                      AND e.SQL_TEXT LIKE '%%SELECT%%'
+                      
+                      -- ═══ EXCLUIR RUIDO ═══
+                      AND e.SQL_TEXT NOT LIKE '%%performance_schema%%'
+                      AND e.SQL_TEXT NOT LIKE '%%information_schema%%'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT 1'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT 1 %%'
+                      AND e.SQL_TEXT NOT LIKE '%%FROM mysql.slow_log%%'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT @@%%'
+                      AND e.SQL_TEXT NOT LIKE 'SET %%'
+                      AND e.SQL_TEXT NOT LIKE 'SHOW %%'
+                      AND e.SQL_TEXT NOT LIKE 'USE %%'
+                      
+                    ORDER BY e.TIMER_END DESC
+                    LIMIT 100
+
+
+
+
+
+
+
+
+
+
+

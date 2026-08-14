@@ -32,13 +32,70 @@ def _validate_threshold(threshold: float) -> float:
     return t
 
 
+
+
+async def enable_performance_schema_consumers():
+    """
+    Activa los consumers de performance_schema necesarios para el monitor.
+    Sin esto, events_statements_history_long no captura datos.
+    """
+    pool = await get_pool()
+    if not pool:
+        logger.warning("⚠️ No hay pool para activar performance_schema consumers")
+        return False
+    
+    required_consumers = [
+        'events_statements_current',
+        'events_statements_history', 
+        'events_statements_history_long',  # ← El que faltaba
+        'statements_digest',
+    ]
+    
+    try:
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                activated = []
+                already_active = []
+                
+                for consumer in required_consumers:
+                    await cur.execute(
+                        "SELECT ENABLED FROM performance_schema.setup_consumers WHERE NAME = %s",
+                        (consumer,)
+                    )
+                    row = await cur.fetchone()
+                    
+                    if row and row[0] == 'YES':
+                        already_active.append(consumer)
+                    else:
+                        await cur.execute(
+                            "UPDATE performance_schema.setup_consumers SET ENABLED = 'YES' WHERE NAME = %s",
+                            (consumer,)
+                        )
+                        activated.append(consumer)
+                
+                logger.info(f"✅ Performance schema consumers ya activos: {already_active}")
+                if activated:
+                    logger.info(f"🔄 Consumers recién activados: {activated}")
+                
+                # Verificación final crítica
+                await cur.execute(
+                    "SELECT ENABLED FROM performance_schema.setup_consumers "
+                    "WHERE NAME = 'events_statements_history_long'"
+                )
+                row = await cur.fetchone()
+                if row and row[0] == 'YES':
+                    logger.info("✅ events_statements_history_long ACTIVO - el monitor capturará consultas lentas")
+                else:
+                    logger.warning("⚠️ events_statements_history_long NO se pudo activar")
+                
+                return True
+    except Exception as e:
+        logger.error(f"❌ Error activando consumers: {e}")
+        return False
+
+
 async def apply_slow_log_config(threshold: float, enabled: bool = True, log_no_indexes: bool = True):
-    """
-    Aplica la configuración de slow_log a MySQL.
-    SE EJECUTA: al arrancar la app y cuando el usuario cambia el umbral.
-    Valida que el umbral sea >= 1 segundo.
-    """
-    # ═══ VALIDAR UMBRAL ═══
+    """Aplica la configuración de slow_log a MySQL."""
     threshold = _validate_threshold(threshold)
     
     pool = await get_pool()
@@ -48,12 +105,8 @@ async def apply_slow_log_config(threshold: float, enabled: bool = True, log_no_i
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cur:
-                # ═══ ORDEN CRÍTICO ═══
-                
-                # 1. Desactivar slow_log (libera locks)
                 await cur.execute("SET GLOBAL slow_query_log = OFF")
                 
-                # 2. Corregir archivo si es necesario (por compatibilidad)
                 try:
                     await cur.execute("SELECT @@datadir")
                     row = await cur.fetchone()
@@ -64,21 +117,14 @@ async def apply_slow_log_config(threshold: float, enabled: bool = True, log_no_i
                 except Exception as e:
                     logger.debug(f"No se pudo ajustar slow_query_log_file: {e}")
                 
-                # 3. Usar TABLE (no archivos)
                 await cur.execute("SET GLOBAL log_output = 'TABLE'")
-                
-                # 4. ═══ SET DEL UMBRAL (el comando clave) ═══
                 await cur.execute(f"SET GLOBAL long_query_time = {threshold}")
                 logger.info(f"⏱️  SET GLOBAL long_query_time = {threshold}")
-                
-                # 5. Configurar sin índices
                 await cur.execute(f"SET GLOBAL log_queries_not_using_indexes = {'ON' if log_no_indexes else 'OFF'}")
                 
-                # 6. Activar/desactivar
                 if enabled:
                     await cur.execute("SET GLOBAL slow_query_log = ON")
                 
-                # 7. ═══ VERIFICAR QUE SE APLICÓ ═══
                 await cur.execute("SHOW VARIABLES LIKE 'long_query_time'")
                 row = await cur.fetchone()
                 applied = float(row[1]) if row else threshold

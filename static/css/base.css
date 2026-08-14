@@ -225,20 +225,79 @@ h1,h2,h3,h4,h5,h6,.fd{font-family:'Space Grotesk',sans-serif}
 
 
 /* ── Consultas lentas: snippet de SQL ── */
+/* SQL snippets en tablas - color sutil, no rojo */
 .sql-snippet {
-    font-family: 'Fira Code', 'Courier New', monospace;
-    font-size: 11.5px;
-    color: rgba(255,255,255,.7);
-    background: rgba(255,255,255,.03);
-    padding: 3px 6px;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 11px;
+    /*color: var(--text-secondary, #a0aec0);*/
+    background: rgba(255, 255, 255, 0.03);
+    padding: 3px 8px;
     border-radius: 4px;
-    display: block;
-    max-width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: inline-block;
+    max-width: 500px;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
 }
-tr:hover .sql-snippet {
-    color: rgba(255,255,255,.95);
-    background: rgba(255,255,255,.06);
+
+/* Hover muestra tooltip con SQL completo */
+.sql-snippet:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+
+
+
+/* ══════════════════════════════════════════════════════════════
+   SQL SNIPPETS EN TABLAS (Lentas y Recientes)
+   Sobrescribe el color rojo por defecto de Bootstrap <code>
+   ══════════════════════════════════════════════════════════════ */
+
+/* Aplica a todos los code dentro de las tablas de consultas */
+#slowBody code.sql-snippet,
+#recentBody code.sql-snippet,
+#slowBody .sql-snippet,
+#recentBody .sql-snippet {
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace !important;
+    font-size: 11px !important;
+    color: var(--text-secondary, #a0aec0) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    padding: 3px 8px !important;
+    border-radius: 4px !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    display: inline-block;
+    max-width: 500px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+}
+
+/* Hover sutil */
+#slowBody code.sql-snippet:hover,
+#recentBody code.sql-snippet:hover {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Modo oscuro específico si tu tema usa data-bs-theme="dark" */
+[data-bs-theme="dark"] #slowBody code.sql-snippet,
+[data-bs-theme="dark"] #recentBody code.sql-snippet {
+    color: #cbd5e0 !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Si el <code> de Bootstrap tiene color por defecto, lo anulamos */
+#slowBody code,
+#recentBody code {
+    color: var(--text-secondary, #a0aec0);
+    background-color: transparent;
+}
+
+
+.sql-snippet-full {
+    color: #e2e8f0 !important;
+    background: rgba(0,0,0,.4) !important;
 }

@@ -111,19 +111,13 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <span class="stag ps">performance_schema</span>
-        <span class="text-secondary ms-2" style="font-size:12px">Buffer en memoria • Se actualiza cada 2s</span>
+        <span class="text-secondary ms-2" style="font-size:12px">Buffer en memoria </span>
     </div>
-    <div class="d-flex gap-2">
-        <button class="boc btn-sm" onclick="clearRecentQueries()" title="Limpiar buffer">
-            <i class="bi bi-trash me-1"></i>Limpiar
-        </button>
-        <button class="boc btn-sm" onclick="loadRecentQueries()">
-            <i class="bi bi-arrow-clockwise me-1"></i>Refrescar
-        </button>
-    </div>
+
   </div>
   
-  <div class="row g-3 mb-4">
+
+<div class="row g-3 mb-4">
     <div class="col-md-3">
       <div class="sc ca">
         <div class="ci" style="background:var(--accent-dim);color:var(--accent)"><i class="bi bi-collection"></i></div>
@@ -135,24 +129,28 @@
       <div class="sc ci2">
         <div class="ci" style="background:rgba(56,189,248,.12);color:var(--info)"><i class="bi bi-speedometer"></i></div>
         <div class="cv" id="recentAvg" style="color:var(--info)">0</div>
-        <div class="cl">Tiempo promedio (ms)</div>
+        <div class="cl">Tiempo promedio (s)</div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="sc cd">
         <div class="ci" style="background:rgba(239,68,68,.12);color:var(--danger)"><i class="bi bi-arrow-up-right"></i></div>
         <div class="cv" id="recentMax" style="color:var(--danger)">0</div>
-        <div class="cl">Tiempo máximo (ms)</div>
+        <div class="cl">Tiempo máximo (s)</div>
       </div>
     </div>
     <div class="col-md-3">
-      <div class="sc" style="--after-bg:var(--success)">
-        <div class="ci" style="background:rgba(34,197,94,.12);color:var(--success)"><i class="bi bi-arrow-down-right"></i></div>
-        <div class="cv" id="recentMin" style="color:var(--success)">0</div>
-        <div class="cl">Tiempo mínimo (ms)</div>
+      <div class="sc" id="recentSlowCard" style="--after-bg:var(--success)">
+        <div class="ci" id="recentSlowIcon" style="background:rgba(34,197,94,.12);color:var(--success)"><i class="bi bi-hourglass-split"></i></div>
+        <div class="cv" id="recentSlowPct" style="color:var(--success)">0%</div>
+        <div class="cl">Consultas lentas (<span id="recentSlowCount">0</span>)</div>
       </div>
     </div>
-  </div>
+</div>
+
+
+
+
 
   <div class="fb">
     <div class="row g-3 align-items-end">
@@ -188,6 +186,7 @@
           <th>BD</th>
           <th>Filas Exam.</th>
           <th>Filas Env.</th>
+          <th>Acción</th>
         </tr>
       </thead>
       <tbody id="recentBody">

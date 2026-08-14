@@ -116,3 +116,33 @@ FLUSH PRIVILEGES;
 
 ## Reiniciar MySQL:
 sudo systemctl restart mysql
+
+
+
+
+
+
+
+
+-- 1. Activar el consumer que falta
+UPDATE performance_schema.setup_consumers 
+SET ENABLED = 'YES' 
+WHERE NAME = 'events_statements_history_long';
+
+-- 2. Verificar que quedó activo
+SELECT * FROM performance_schema.setup_consumers 
+WHERE NAME LIKE 'events_statements_%';
+
+-- 3. Probar que ya captura datos
+SELECT SLEEP(4);  -- Espera 4 segundos
+
+-- 4. Verificar que ahora sí hay datos
+SELECT 
+    t.PROCESSLIST_HOST AS user_host,
+    e.SQL_TEXT,
+    ROUND(e.TIMER_WAIT / 1000000000000, 2) AS segundos
+FROM performance_schema.events_statements_history_long e
+JOIN performance_schema.threads t ON e.THREAD_ID = t.THREAD_ID
+WHERE e.SQL_TEXT IS NOT NULL
+ORDER BY e.TIMER_END DESC
+LIMIT 5;

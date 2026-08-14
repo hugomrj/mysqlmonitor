@@ -1,6 +1,8 @@
+# services/recent_queries.py
 """
 Servicio de consultas recientes en memoria (performance_schema)
 NO persiste en SQLite, solo mantiene un buffer circular en RAM.
+Filtrado: Solo SELECTs reales, sin ruido interno.
 """
 import asyncio
 import logging
@@ -18,6 +20,18 @@ _lock = asyncio.Lock()
 
 # Task para el loop de recolección
 _task: asyncio.Task | None = None
+_permission_error = None
+
+
+
+
+async def get_permission_error():
+    """Devuelve el error de permisos actual (si existe)."""
+    return _permission_error
+
+
+
+
 
 
 async def start():
@@ -55,9 +69,13 @@ async def _collect_loop():
 
 
 
+
+
+
 async def collect_recent_queries():
-    """Lee las últimas consultas de performance_schema.
-    CORREGIDO para MySQL 5.7: usa CURRENT_SCHEMA en lugar de SCHEMA_NAME."""
+    """Lee las últimas consultas de performance_schema."""
+    global _permission_error
+    
     pool = await get_pool()
     if not pool:
         return []
@@ -65,7 +83,6 @@ async def collect_recent_queries():
     try:
         async with pool.acquire() as conn:
             async with conn.cursor() as cur:
-                # CORRECCIÓN: CURRENT_SCHEMA en lugar de SCHEMA_NAME
                 await cur.execute("""
                     SELECT 
                         t.PROCESSLIST_HOST AS client_host,
@@ -79,13 +96,23 @@ async def collect_recent_queries():
                     FROM performance_schema.events_statements_history_long e
                     JOIN performance_schema.threads t ON e.THREAD_ID = t.THREAD_ID
                     WHERE e.SQL_TEXT IS NOT NULL
-                      AND e.SQL_TEXT NOT LIKE 'performance_schema%%'
-                      AND e.SQL_TEXT NOT LIKE 'information_schema%%'
-                      AND e.SQL_TEXT NOT LIKE 'SHOW %%'
+                      AND e.SQL_TEXT LIKE '%SELECT%'
+                      AND e.SQL_TEXT NOT LIKE '%performance_schema%'
+                      AND e.SQL_TEXT NOT LIKE '%information_schema%'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT 1'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT 1 %'
+                      AND e.SQL_TEXT NOT LIKE '%FROM mysql.slow_log%'
+                      AND e.SQL_TEXT NOT LIKE 'SELECT @@%'
+                      AND e.SQL_TEXT NOT LIKE 'SET %'
+                      AND e.SQL_TEXT NOT LIKE 'SHOW %'
+                      AND e.SQL_TEXT NOT LIKE 'USE %'
                     ORDER BY e.TIMER_END DESC
                     LIMIT 100
                 """)
                 rows = await cur.fetchall()
+        
+        # Si llegó aquí, no hay error
+        _permission_error = None
         
         async with _lock:
             existing_sqls = {q["sql_text"] for q in _recent_queries}
@@ -113,10 +140,24 @@ async def collect_recent_queries():
         return list(_recent_queries)
         
     except Exception as e:
-        logger.error(f"Error leyendo performance_schema: {e}")
+        error_str = str(e)
+        
+        if 'command denied' in error_str.lower() or '1142' in error_str:
+            _permission_error = (
+                "⚠️ Sin permisos para leer consultas. "
+                "El usuario de MySQL no tiene acceso a performance_schema. "
+                "Contacte al DBA para otorgar permisos de lectura sobre performance_schema."
+            )
+            logger.error(f"⛔ PERMISOS INSUFICIENTES (recent): {error_str}")
+        else:
+            _permission_error = f"⚠️ Error al leer consultas: {error_str[:200]}"
+            logger.error(f"Error leyendo performance_schema: {e}")
+        
         return []
 
 
+
+    
 
 
 async def get_recent_queries(limit: int = 100, min_time_ms: float = None, 
@@ -125,7 +166,6 @@ async def get_recent_queries(limit: int = 100, min_time_ms: float = None,
     async with _lock:
         queries = list(_recent_queries)
     
-    # Aplicar filtros
     if min_time_ms is not None:
         queries = [q for q in queries if q["query_time_ms"] >= min_time_ms]
     
@@ -139,24 +179,44 @@ async def get_recent_queries(limit: int = 100, min_time_ms: float = None,
 
 
 async def get_stats():
-    """Estadísticas de las consultas recientes."""
+    """Estadísticas de las consultas recientes, incluyendo % de lentas."""
+    # Importar aquí para obtener el umbral actual
+    from database import load_config
+    
     async with _lock:
         queries = list(_recent_queries)
     
     if not queries:
-        return {"total": 0, "avg_time_ms": 0, "max_time_ms": 0}
+        return {
+            "total": 0,
+            "avg_time_ms": 0,
+            "max_time_ms": 0,
+            "min_time_ms": 0,
+            "slow_count": 0,
+            "slow_percentage": 0,
+        }
     
     times = [q["query_time_ms"] for q in queries]
+    total = len(queries)
+    
+    # Obtener el umbral configurado (en segundos) y convertir a ms
+    try:
+        cfg = await load_config()
+        threshold_ms = float(cfg.slow_query_threshold) * 1000
+    except Exception:
+        threshold_ms = 3000  # Default 3 segundos
+    
+    # Contar consultas lentas (superan el umbral)
+    slow_count = sum(1 for t in times if t >= threshold_ms)
+    slow_percentage = round((slow_count / total) * 100, 1) if total > 0 else 0
+    
     return {
-        "total": len(queries),
-        "avg_time_ms": round(sum(times) / len(times), 2),
+        "total": total,
+        "avg_time_ms": round(sum(times) / total, 2),
         "max_time_ms": round(max(times), 2),
         "min_time_ms": round(min(times), 2),
+        "slow_count": slow_count,
+        "slow_percentage": slow_percentage,
+        "threshold_ms": threshold_ms,
     }
 
-
-async def clear():
-    """Limpia el buffer de consultas recientes."""
-    async with _lock:
-        _recent_queries.clear()
-    logger.info("Buffer de consultas recientes limpiado")

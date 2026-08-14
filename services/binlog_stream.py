@@ -13,6 +13,7 @@ import queue
 import sqlite3
 import threading
 import time
+import random  # ← AGREGAR
 from collections import deque
 from datetime import datetime, timezone
 from typing import Optional, Set
@@ -29,8 +30,10 @@ MAX_STORED_EVENTS = 10000
 MAX_ROW_DATA_ROWS = 5
 MAX_STRING_LENGTH = 200
 
-# [OPTIMIZACIÓN 1] Server ID fijo para evitar conflictos de replicación
-SERVER_ID = (os.getpid() % 100000) + 1000  # Único por proceso
+# [CORRECCIÓN] Server ID verdaderamente único para evitar conflictos de replicación
+# Combina: timestamp en ms + PID + random para garantizar unicidad absoluta
+# Esto previene el error 1236 "A slave with the same server_id has connected"
+SERVER_ID = (int(time.time() * 1000) % 1000000) + (os.getpid() % 10000) + random.randint(1, 99999)
 
 
 def _get_replication_module():
