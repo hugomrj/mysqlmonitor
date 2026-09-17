@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import logging
@@ -270,3 +271,25 @@ async def root():
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+
+
+
+if __name__ == "__main__":
+    
+    socket_path = os.getenv("MYSQLMONITOR_SOCKET")
+
+    if socket_path:
+        uvicorn.run(
+            "main:app",
+            uds=socket_path,
+            reload=False
+        )
+    else:
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=False
+        )
+
+
